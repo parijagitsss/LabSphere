@@ -38,26 +38,29 @@ class ConnectionManager:
 
     def register_computer(
         self,
-        pc_id: str,
         hostname: str,
         ip_address: str,
         websocket: WebSocket
     ):
-        existing_student = None
+        pc_number = 1
 
-        if pc_id in self.computers:
-            existing_student = self.computers[pc_id].get("student_name")
-            
+        while f"PC-{pc_number:02d}" in self.computers:
+            pc_number += 1
+
+        pc_id = f"PC-{pc_number:02d}"
+
         self.computers[pc_id] = {
             "pc_id": pc_id,
             "hostname": hostname,
             "ip_address": ip_address,
             "websocket": websocket,
-            "student_name": existing_student,
+            "student_name": None,
             "status": "Online",
             "activity": None,
             "last_seen": datetime.now().isoformat()
-    }
+        }
+
+        return pc_id
 
     def get_computers(self):
         return list(self.computers.keys())

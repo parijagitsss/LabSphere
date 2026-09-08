@@ -388,26 +388,26 @@ async def websocket_endpoint(websocket: WebSocket):
             data = json.loads(message)
 
             if data.get("type") == "REGISTER":
-                pc_id = data.get("pc_id")
                 hostname = data.get("hostname")
                 ip_address = data.get("ip_address")
 
-                if pc_id and hostname and ip_address:
-                    manager.register_computer(
-                        pc_id,
+                if hostname and ip_address:
+                    pc_id = manager.register_computer(
                         hostname,
                         ip_address,
                         websocket
-                    )
+                )
 
-                    await websocket.send_json({
-                        "type": "REGISTER_SUCCESS",
-                        "message": f"Computer {pc_id} registered successfully"
-                    })
+                await websocket.send_json({
+                    "type": "REGISTER_SUCCESS",
+                    "pc_id": pc_id,
+                    "message": f"Computer {pc_id} registered successfully"
+                })
 
-                    print(
-                        f"Computer connected: {pc_id} | Hostname: {hostname} | IP: {ip_address}"
-                    )
+                print(
+                    f"Computer connected: {pc_id} | "
+                    f"Hostname: {hostname} | IP: {ip_address}"
+                )
 
             elif data.get("type") == "ACTIVITY":
                 pc_id = data.get("pc_id")

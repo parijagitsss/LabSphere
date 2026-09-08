@@ -71,14 +71,10 @@ async def student_client():
         pc_name = socket.gethostname()
         pc_ip = socket.gethostbyname(pc_name)
 
-        with open("student-client/config.json", "r") as file:
-            config = json.load(file)
-
-        pc_id = config["pc_id"]
+        pc_id = None
 
         registration = {
             "type": "REGISTER",
-            "pc_id": pc_id,
             "hostname": pc_name,
             "ip_address": pc_ip
         }
@@ -87,6 +83,12 @@ async def student_client():
 
         response = await websocket.recv()
         print("Server:", response)
+
+        registration_response = json.loads(response)
+
+        if registration_response.get("type") == "REGISTER_SUCCESS":
+            pc_id = registration_response.get("pc_id")
+            print(f"Assigned computer ID: {pc_id}")
 
         asyncio.create_task(send_heartbeat(websocket))
         asyncio.create_task(send_activity(websocket, pc_id))
