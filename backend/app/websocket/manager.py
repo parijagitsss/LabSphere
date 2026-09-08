@@ -55,6 +55,7 @@ class ConnectionManager:
             "websocket": websocket,
             "student_name": existing_student,
             "status": "Online",
+            "activity": None,
             "last_seen": datetime.now().isoformat()
     }
 

@@ -3,12 +3,24 @@ import json
 from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.app.websocket.manager import ConnectionManager
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 manager = ConnectionManager()
 class SessionCreate(BaseModel):
@@ -230,6 +242,23 @@ def get_computer(pc_id: str):
         "last_seen": info["last_seen"]
     }
 
+@app.get("/computers/{pc_id}/activity")
+def get_computer_activity(pc_id: str):
+    if pc_id not in manager.computers:
+        return {
+            "status": "computer_not_found",
+            "pc_id": pc_id
+        }
+
+    info = manager.computers[pc_id]
+
+    return {
+        "pc_id": pc_id,
+        "student_name": info["student_name"],
+        "status": info["status"],
+        "activity": info.get("activity")
+    }
+
 @app.post("/computers/{pc_id}/message")
 async def send_computer_message(pc_id: str):
     success = await manager.send_to_computer(
@@ -313,6 +342,41 @@ async def send_computer_command(
         "pc_id": pc_id
     }
 
+class BroadcastCommand(BaseModel):
+    command: str
+    data: dict = {}
+
+
+@app.post("/computers/broadcast")
+async def broadcast_command(command: BroadcastCommand):
+    message = {
+        "type": "COMMAND",
+        "command": command.command,
+        "data": command.data
+    }
+
+    sent_to = []
+    failed = []
+
+    for pc_id, info in manager.computers.items():
+        websocket = info.get("websocket")
+
+        if websocket and info["status"] == "Online":
+            try:
+                await websocket.send_json(message)
+                sent_to.append(pc_id)
+            except Exception:
+                failed.append(pc_id)
+        else:
+            failed.append(pc_id)
+
+    return {
+        "status": "broadcast_complete",
+        "command": command.command,
+        "sent_to": sent_to,
+        "failed": failed
+    }
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -344,6 +408,35 @@ async def websocket_endpoint(websocket: WebSocket):
                     print(
                         f"Computer connected: {pc_id} | Hostname: {hostname} | IP: {ip_address}"
                     )
+
+            elif data.get("type") == "ACTIVITY":
+                pc_id = data.get("pc_id")
+
+                if pc_id in manager.computers:
+                    manager.computers[pc_id]["activity"] = {
+                        "active_window": data.get("active_window"),
+                        "cpu_percent": data.get("cpu_percent"),
+                        "memory_percent": data.get("memory_percent"),
+                        "idle_seconds": data.get("idle_seconds"),
+                        "timestamp": data.get("timestamp")
+                    }
+
+                    manager.computers[pc_id]["last_seen"] = datetime.now().isoformat()
+
+                    print(
+                        f"Activity from {pc_id} | "
+                        f"Window: {data.get('active_window')} | "
+                        f"CPU: {data.get('cpu_percent')}% | "
+                        f"RAM: {data.get('memory_percent')}%"
+                )
+
+                manager.computers[pc_id]["last_seen"] = datetime.now().isoformat()
+
+                print(
+                    f"Activity from {pc_id} | "
+                    f"CPU: {data.get('cpu_percent')}% | "
+                    f"RAM: {data.get('memory_percent')}%"
+                )
 
             elif data.get("type") == "RESPONSE":
                 command = data.get("command")
