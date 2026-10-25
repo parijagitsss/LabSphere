@@ -5,6 +5,10 @@ import websockets
 import ctypes
 import psutil
 import win32gui
+import base64
+import io
+import mss
+from PIL import Image
 
 
 def get_active_window():
@@ -62,8 +66,47 @@ async def send_activity(websocket, pc_id):
 
         await asyncio.sleep(10)
 
+def capture_screen_frame():
+    with mss.mss() as screen_capture:
+        screenshot = screen_capture.grab(screen_capture.monitors[1])
+        image = Image.frombytes(
+            "RGB",
+            screenshot.size,
+            screenshot.rgb
+        )
+
+        image.thumbnail((1280, 720))
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=60)
+
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+async def stream_screen(websocket, pc_id, stop_event):
+    loop = asyncio.get_running_loop()
+
+    while not stop_event.is_set():
+        try:
+            frame = await loop.run_in_executor(
+                None, capture_screen_frame
+            )
+
+            await websocket.send(json.dumps({
+                "type": "SCREEN_FRAME",
+                "pc_id": pc_id,
+                "frame": frame
+            }))
+
+            await asyncio.sleep(1)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print("Screen streaming error:", e)
+            await asyncio.sleep(2)
+
 async def student_client():
-    uri = "ws://192.168.100.4:8000/ws"
+    uri = "ws://127.0.0.1:8000/ws"
 
     async with websockets.connect(uri) as websocket:
         print("Connected to LabSphere server!")
@@ -92,7 +135,14 @@ async def student_client():
 
         asyncio.create_task(send_heartbeat(websocket))
         asyncio.create_task(send_activity(websocket, pc_id))
+        
+        screen_stop_event = asyncio.Event()
+        screen_task = asyncio.create_task(
+            stream_screen(websocket, pc_id, screen_stop_event)
+        )
+        print("Continuous screen monitoring started")
 
+        
         while True:
             message = await websocket.recv()
             print("Received:", message)
@@ -103,8 +153,31 @@ async def student_client():
                 command_name = command.get("command")
                 data = command.get("data", {})
 
-                if command_name == "SHOW_MESSAGE":
-                    print("TEACHER MESSAGE:", data.get("message"))
+                if command_name == "START_MONITORING":
+                    if screen_task is None or screen_task.done():
+                        screen_stop_event.clear()
+                        screen_task = asyncio.create_task(
+                            stream_screen(websocket, pc_id, screen_stop_event)
+                        )
+                        print("Screen monitoring started")
+
+                elif command_name == "STOP_MONITORING":
+                    if screen_task and not screen_task.done():
+                        screen_stop_event.set()
+                        screen_task.cancel()
+                        screen_task = None
+                        print("Screen monitoring stopped")
+
+                elif command_name == "SHOW_MESSAGE":
+                    teacher_message = data.get("message", "")
+                    print("TEACHER MESSAGE:", teacher_message)
+
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        teacher_message,
+                        "Message from Teacher",
+                        0x40
+                    )
 
                 elif command_name == "PING":
                     response = {
@@ -112,7 +185,6 @@ async def student_client():
                         "command": "PING",
                         "status": "OK"
                     }
-
                     await websocket.send(json.dumps(response))
                     print("PING response sent")
 
@@ -127,6 +199,7 @@ async def student_client():
                 else:
                     print("TEACHER COMMAND:", command_name)
                     print("COMMAND DATA:", data)
+
 
 async def send_heartbeat(websocket):
     while True:

@@ -23,6 +23,8 @@ app.add_middleware(
 )
 
 manager = ConnectionManager()
+# Latest screen frame for each monitored computer
+screen_frames = {}
 class SessionCreate(BaseModel):
     subject: str
     batch: str
@@ -206,6 +208,27 @@ def end_session(session_id: str):
 def health_check():
     return {"status": "online"}
 
+@app.get("/computers/{pc_id}/screen")
+def get_computer_screen(pc_id: str):
+    if pc_id not in manager.computers:
+        return {
+            "status": "computer_not_found",
+            "pc_id": pc_id
+        }
+
+    frame = screen_frames.get(pc_id)
+
+    if not frame:
+        return {
+            "status": "no_screen_frame",
+            "pc_id": pc_id
+        }
+
+    return {
+        "status": "ok",
+        "pc_id": pc_id,
+        "frame": frame
+    }
 
 @app.get("/computers")
 def get_computers():
@@ -259,29 +282,50 @@ def get_computer_activity(pc_id: str):
         "activity": info.get("activity")
     }
 
-@app.post("/computers/{pc_id}/message")
-async def send_computer_message(pc_id: str):
-    success = await manager.send_to_computer(
-        pc_id,
-        {
-            "type": "COMMAND",
-            "command": "SHOW_MESSAGE",
-            "data": {
-                "message": "Hello from LabSphere Teacher!"
-            }
-        }
-    )
+class MessageCommand(BaseModel):
+    message: str
 
-    if success:
+
+@app.post("/computers/{pc_id}/message")
+async def send_message(
+    pc_id: str,
+    message_command: MessageCommand
+):
+    if pc_id not in manager.computers:
         return {
-            "status": "sent",
+            "status": "computer_not_found",
             "pc_id": pc_id
         }
 
-    return {
-        "status": "computer_not_found",
-        "pc_id": pc_id
+    info = manager.computers[pc_id]
+    websocket = info.get("websocket")
+
+    if not websocket or info["status"] != "Online":
+        return {
+            "status": "computer_offline",
+            "pc_id": pc_id
+        }
+
+    message = {
+        "type": "MESSAGE",
+        "message": message_command.message
     }
+
+    try:
+        await websocket.send_json(message)
+
+        return {
+            "status": "message_sent",
+            "pc_id": pc_id,
+            "message": message_command.message
+        }
+
+    except Exception as e:
+        return {
+            "status": "message_failed",
+            "pc_id": pc_id,
+            "error": str(e)
+        }
 
 
 @app.post("/computers/{pc_id}/ping")
@@ -408,6 +452,22 @@ async def websocket_endpoint(websocket: WebSocket):
                     f"Computer connected: {pc_id} | "
                     f"Hostname: {hostname} | IP: {ip_address}"
                 )
+
+            elif data.get("type") == "SCREEN_FRAME":
+                pc_id = data.get("pc_id")
+                frame = data.get("frame")
+
+                print(
+                    f"SCREEN_FRAME received | PC: {pc_id} | "
+                    f"Frame present: {bool(frame)} | "
+                    f"Frame length: {len(frame) if frame else 0}"
+                )
+
+                if pc_id in manager.computers and frame:
+                    screen_frames[pc_id] = frame
+                    print(f"Screen frame stored for {pc_id}")
+                else:
+                    print(f"Screen frame NOT stored. Known PCs: {list(manager.computers.keys())}")
 
             elif data.get("type") == "ACTIVITY":
                 pc_id = data.get("pc_id")
