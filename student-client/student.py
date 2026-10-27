@@ -9,7 +9,31 @@ import base64
 import io
 import mss
 from PIL import Image
+import uuid
+from pathlib import Path
 
+
+def get_device_id():
+    config_path = Path(__file__).with_name("device_config.json")
+
+    if config_path.exists():
+        try:
+            with config_path.open("r", encoding="utf-8") as file:
+                config = json.load(file)
+
+            device_id = config.get("device_id")
+            if device_id:
+                return device_id
+        except (json.JSONDecodeError, OSError):
+            print("Could not read device_config.json. Creating a new device ID.")
+
+    device_id = str(uuid.uuid4())
+
+    with config_path.open("w", encoding="utf-8") as file:
+        json.dump({"device_id": device_id}, file, indent=4)
+
+    print(f"Created persistent device ID: {device_id}")
+    return device_id
 
 def get_active_window():
     try:
@@ -82,6 +106,7 @@ def capture_screen_frame():
 
         return base64.b64encode(buffer.getvalue()).decode("ascii")
 
+
 async def stream_screen(websocket, pc_id, stop_event):
     loop = asyncio.get_running_loop()
 
@@ -105,6 +130,7 @@ async def stream_screen(websocket, pc_id, stop_event):
             print("Screen streaming error:", e)
             await asyncio.sleep(2)
 
+
 async def student_client():
     uri = "ws://127.0.0.1:8000/ws"
 
@@ -116,10 +142,14 @@ async def student_client():
 
         pc_id = None
 
+        
+        device_id = get_device_id()
+
         registration = {
             "type": "REGISTER",
             "hostname": pc_name,
-            "ip_address": pc_ip
+            "ip_address": pc_ip,
+            "device_id": device_id
         }
 
         await websocket.send(json.dumps(registration))
@@ -129,78 +159,88 @@ async def student_client():
 
         registration_response = json.loads(response)
 
-        if registration_response.get("type") == "REGISTER_SUCCESS":
-            pc_id = registration_response.get("pc_id")
-            print(f"Assigned computer ID: {pc_id}")
+        if registration_response.get("type") != "REGISTER_SUCCESS":
+            print("Registration failed. Student client will stop.")
+            return
+
+        pc_id = registration_response.get("pc_id")
+        print(f"Assigned computer ID: {pc_id}")
 
         asyncio.create_task(send_heartbeat(websocket))
         asyncio.create_task(send_activity(websocket, pc_id))
-        
+
         screen_stop_event = asyncio.Event()
         screen_task = asyncio.create_task(
             stream_screen(websocket, pc_id, screen_stop_event)
         )
         print("Continuous screen monitoring started")
 
-        
+    
         while True:
             message = await websocket.recv()
             print("Received:", message)
 
             command = json.loads(message)
 
-            if command.get("type") == "COMMAND":
-                command_name = command.get("command")
-                data = command.get("data", {})
+            if command.get("type") != "COMMAND":
+                continue
 
-                if command_name == "START_MONITORING":
-                    if screen_task is None or screen_task.done():
-                        screen_stop_event.clear()
-                        screen_task = asyncio.create_task(
-                            stream_screen(websocket, pc_id, screen_stop_event)
-                        )
-                        print("Screen monitoring started")
+            command_name = command.get("command")
+            data = command.get("data", {})
 
-                elif command_name == "STOP_MONITORING":
-                    if screen_task and not screen_task.done():
-                        screen_stop_event.set()
-                        screen_task.cancel()
-                        screen_task = None
-                        print("Screen monitoring stopped")
+            if command_name == "START_TEACHER_BROADCAST":
+                print("Teacher screen broadcast is starting")
 
-                elif command_name == "SHOW_MESSAGE":
-                    teacher_message = data.get("message", "")
-                    print("TEACHER MESSAGE:", teacher_message)
+            elif command_name == "STOP_TEACHER_BROADCAST":
+                print("Teacher screen broadcast has stopped")
 
-                    ctypes.windll.user32.MessageBoxW(
-                        0,
-                        teacher_message,
-                        "Message from Teacher",
-                        0x40
+            elif command_name == "START_MONITORING":
+                if screen_task is None or screen_task.done():
+                    screen_stop_event.clear()
+                    screen_task = asyncio.create_task(
+                        stream_screen(websocket, pc_id, screen_stop_event)
                     )
+                    print("Screen monitoring started")
 
-                elif command_name == "PING":
-                    response = {
-                        "type": "RESPONSE",
-                        "command": "PING",
-                        "status": "OK"
-                    }
-                    await websocket.send(json.dumps(response))
-                    print("PING response sent")
+            elif command_name == "STOP_MONITORING":
+                if screen_task and not screen_task.done():
+                    screen_stop_event.set()
+                    screen_task.cancel()
+                    screen_task = None
+                    print("Screen monitoring stopped")
 
-                elif command_name == "LOCK":
-                    print("LOCK command received")
-                    ctypes.windll.user32.LockWorkStation()
+            elif command_name == "SHOW_MESSAGE":
+                teacher_message = data.get("message", "")
+                print("TEACHER MESSAGE:", teacher_message)
 
-                elif command_name == "UNLOCK":
-                    print("UNLOCK command received")
-                    print("Windows unlock requires user authentication")
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    teacher_message,
+                    "Message from Teacher",
+                    0x40
+                )
 
-                else:
-                    print("TEACHER COMMAND:", command_name)
-                    print("COMMAND DATA:", data)
+            elif command_name == "PING":
+                response = {
+                    "type": "RESPONSE",
+                    "command": "PING",
+                    "status": "OK"
+                }
+                await websocket.send(json.dumps(response))
+                print("PING response sent")
 
+            elif command_name == "LOCK":
+                print("LOCK command received")
+                ctypes.windll.user32.LockWorkStation()
 
+            elif command_name == "UNLOCK":
+                print("UNLOCK command received")
+                print("Windows unlock requires user authentication")
+
+            else:
+                print("TEACHER COMMAND:", command_name)
+                print("COMMAND DATA:", data)
+    
 async def send_heartbeat(websocket):
     while True:
         await asyncio.sleep(10)

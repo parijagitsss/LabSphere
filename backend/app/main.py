@@ -25,6 +25,7 @@ app.add_middleware(
 manager = ConnectionManager()
 # Latest screen frame for each monitored computer
 screen_frames = {}
+teacher_screen_frame = None
 class SessionCreate(BaseModel):
     subject: str
     batch: str
@@ -208,6 +209,31 @@ def end_session(session_id: str):
 def health_check():
     return {"status": "online"}
 
+
+@app.post("/teacher/broadcast/frame")
+async def receive_teacher_broadcast_frame(payload: dict):
+    global teacher_screen_frame
+
+    frame = payload.get("frame")
+
+    if not frame:
+        return {"status": "missing_frame"}
+
+    teacher_screen_frame = frame
+
+    return {"status": "frame_received"}
+
+
+@app.get("/teacher/broadcast/frame")
+def get_teacher_broadcast_frame():
+    if not teacher_screen_frame:
+        return {"status": "no_frame"}
+
+    return {
+        "status": "ok",
+        "frame": teacher_screen_frame
+    }
+
 @app.get("/computers/{pc_id}/screen")
 def get_computer_screen(pc_id: str):
     if pc_id not in manager.computers:
@@ -306,9 +332,13 @@ async def send_message(
             "pc_id": pc_id
         }
 
+    
     message = {
-        "type": "MESSAGE",
-        "message": message_command.message
+        "type": "COMMAND",
+        "command": "SHOW_MESSAGE",
+        "data": {
+            "message": message_command.message
+        }
     }
 
     try:
@@ -434,24 +464,32 @@ async def websocket_endpoint(websocket: WebSocket):
             if data.get("type") == "REGISTER":
                 hostname = data.get("hostname")
                 ip_address = data.get("ip_address")
+                device_id = data.get("device_id")
 
-                if hostname and ip_address:
+                if hostname and ip_address and device_id:
                     pc_id = manager.register_computer(
                         hostname,
                         ip_address,
-                        websocket
-                )
+                        websocket,
+                        device_id
+                    )
 
-                await websocket.send_json({
-                    "type": "REGISTER_SUCCESS",
-                    "pc_id": pc_id,
-                    "message": f"Computer {pc_id} registered successfully"
-                })
+                    await websocket.send_json({
+                        "type": "REGISTER_SUCCESS",
+                        "pc_id": pc_id,
+                        "message": f"Computer {pc_id} registered successfully"
+                    })
 
-                print(
-                    f"Computer connected: {pc_id} | "
-                    f"Hostname: {hostname} | IP: {ip_address}"
-                )
+                    print(
+                        f"Computer connected: {pc_id} | "
+                        f"Hostname: {hostname} | IP: {ip_address}"
+                    )
+
+                else:
+                    await websocket.send_json({
+                        "type": "REGISTER_ERROR",
+                        "message": "Missing hostname, IP address, or device ID"
+                    })
 
             elif data.get("type") == "SCREEN_FRAME":
                 pc_id = data.get("pc_id")
@@ -489,14 +527,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         f"CPU: {data.get('cpu_percent')}% | "
                         f"RAM: {data.get('memory_percent')}%"
                 )
-
-                manager.computers[pc_id]["last_seen"] = datetime.now().isoformat()
-
-                print(
-                    f"Activity from {pc_id} | "
-                    f"CPU: {data.get('cpu_percent')}% | "
-                    f"RAM: {data.get('memory_percent')}%"
-                )
+                else:
+                    print(f"Activity received from unknown computer: {pc_id}")
 
             elif data.get("type") == "RESPONSE":
                 command = data.get("command")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -10,6 +10,9 @@ function App() {
   const [activity, setActivity] = useState(null);
   const [screenFrames, setScreenFrames] = useState({});
   const [expandedComputer, setExpandedComputer] = useState(null);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const teacherStreamRef = useRef(null);
+  const broadcastIntervalRef = useRef(null);
 
   const fetchComputers = async () => {
     try {
@@ -213,14 +216,28 @@ function App() {
         </section>
 
         <section className="computer-section">
-          <div className="section-header">
-            <div>
-              <h2>Lab Computers</h2>
-              <p>Live computer activity</p>
-            </div>
-            <button onClick={fetchComputers}>Refresh</button>
-          </div>
+          
+        <div className="section-header">
+          <div>
+            <h2>Lab Computers</h2>
+            <p>Live computer activity</p>
+        </div>
 
+        <div className="broadcast-controls">
+          {isBroadcasting ? (
+            <button onClick={stopTeacherBroadcast}>
+              Stop Broadcast
+            </button>
+            ) : (
+            <button onClick={startTeacherBroadcast}>
+              Start Broadcast
+            </button>
+          )}
+
+          <button onClick={fetchComputers}>Refresh</button>
+        </div>
+      </div>
+      
           {loading ? (
             <div className="empty-state">Loading computers...</div>
           ) : computers.length === 0 ? (
@@ -399,15 +416,6 @@ function App() {
                   </p>
                 </div>
               )}
-            </div>
-
-            <div className="modal-actions">
-              <button onClick={() => viewComputer(expandedComputer)}>
-                View Activity
-              </button>
-              <button onClick={() => setExpandedComputer(null)}>
-                Close
-              </button>
             </div>
           </section>
         </div>
