@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = "http://10.19.154.84:8000";
 
 function App() {
   const [computers, setComputers] = useState([]);
@@ -10,9 +10,28 @@ function App() {
   const [activity, setActivity] = useState(null);
   const [screenFrames, setScreenFrames] = useState({});
   const [expandedComputer, setExpandedComputer] = useState(null);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [annotationColor, setAnnotationColor] = useState("#ff3333");
+  const [annotationLines, setAnnotationLines] = useState({});
+  const [currentLine, setCurrentLine] = useState(null);
+  const annotationCanvasRef = useRef(null);
+  const currentLineRef = useRef(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const teacherStreamRef = useRef(null);
   const broadcastIntervalRef = useRef(null);
+  // Broadcast annotation state
+  const [broadcastPenEnabled, setBroadcastPenEnabled] = useState(false);
+  const [broadcastPenColor, setBroadcastPenColor] = useState("#ff3333");
+  const [broadcastAnnotationLines, setBroadcastAnnotationLines] = useState([]);
+  const [currentBroadcastLine, setCurrentBroadcastLine] = useState(null);
+  const currentBroadcastLineRef = useRef(null);
+  const broadcastVideoRef = useRef(null);
+  const broadcastCanvasRef = useRef(null);
+  const [broadcastPreviewFrame, setBroadcastPreviewFrame] = useState(null);
+  const broadcastAnnotationLinesRef = useRef([]);
+  useEffect(() => {
+  broadcastAnnotationLinesRef.current = broadcastAnnotationLines;
+}, [broadcastAnnotationLines]);
 
   const fetchComputers = async () => {
     try {
@@ -59,59 +78,108 @@ function App() {
 
   
   const startTeacherBroadcast = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          frameRate: 5,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: 5,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
+
+    teacherStreamRef.current = stream;
+    setIsBroadcasting(true);
+
+    notifyStudentsBroadcast("START_TEACHER_BROADCAST");
+
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+
+    await video.play();
+
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    canvas.width = 1280;
+    canvas.height = 720;
+
+    broadcastCanvasRef.current = canvas;
+
+    const sendFrame = async () => {
+      if (!video.videoWidth || !video.videoHeight) return;
+
+      // Draw the captured teacher screen.
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Include completed and currently drawn strokes.
+      const linesToDraw = [
+        ...broadcastAnnotationLinesRef.current,
+        ...(currentBroadcastLineRef.current
+          ? [currentBroadcastLineRef.current]
+          : []),
+      ];
+
+      linesToDraw.forEach((line) => {
+        if (!line.points || line.points.length < 2) return;
+
+        context.beginPath();
+        context.strokeStyle = line.color;
+        context.lineWidth = 4;
+        context.lineCap = "round";
+        context.lineJoin = "round";
+
+        line.points.forEach((point, index) => {
+          const x = point.x * canvas.width;
+          const y = point.y * canvas.height;
+
+          if (index === 0) {
+            context.moveTo(x, y);
+          } else {
+            context.lineTo(x, y);
+          }
+        });
+
+        context.stroke();
       });
 
-      teacherStreamRef.current = stream;
-      setIsBroadcasting(true);
-      notifyStudentsBroadcast("START_TEACHER_BROADCAST");
+      // Update the teacher's preview with the composited frame.
+      const imageData = canvas.toDataURL("image/jpeg", 0.6);
+      setBroadcastPreviewFrame(imageData);
 
-      const video = document.createElement("video");
-      video.srcObject = stream;
-      video.muted = true;
-      await video.play();
+      // Send the same annotated frame to the backend.
+      const frame = imageData.split(",")[1];
 
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
+      try {
+        await fetch(`${API_URL}/teacher/broadcast/frame`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ frame }),
+        });
+      } catch (error) {
+        console.error("Failed to send teacher screen frame:", error);
+      }
+    };
 
-      canvas.width = 1280;
-      canvas.height = 720;
+    broadcastIntervalRef.current = setInterval(sendFrame, 1000);
 
-      const sendFrame = async () => {
-        if (!video.videoWidth || !video.videoHeight) return;
+    // Send an initial frame without waiting for the first interval.
+    sendFrame();
 
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = canvas.toDataURL("image/jpeg", 0.6).split(",")[1];
-
-        try {
-          await fetch(`${API_URL}/teacher/broadcast/frame`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ frame }),
-          });
-        } catch (error) {
-          console.error("Failed to send teacher screen frame:", error);
-        }
-      };
-
-      broadcastIntervalRef.current = setInterval(sendFrame, 1000);
-
-      stream.getVideoTracks()[0].addEventListener("ended", () => {
-        stopTeacherBroadcast();
-      });
-    } catch (error) {
-      console.error("Could not start teacher broadcast:", error);
+    stream.getVideoTracks()[0].addEventListener("ended", () => {
       stopTeacherBroadcast();
-      alert("Screen sharing was cancelled or could not be started.");
-    }
-  };
+    });
+  } catch (error) {
+    console.error("Failed to start teacher broadcast:", error);
+    stopTeacherBroadcast();
+    alert("Unable to start screen sharing. Please try again.");
+  }
+};
 
   const stopTeacherBroadcast = () => {
     if (broadcastIntervalRef.current) {
@@ -135,6 +203,143 @@ function App() {
       console.error("Failed to clear teacher broadcast frame:", error);
     });
   };
+
+
+  const startAnnotation = (event, screenId) => {
+    if (!annotationMode) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const point = {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    };
+
+    const line = {
+      screenId,
+      color: annotationColor,
+      points: [point],
+    };
+
+    currentLineRef.current = line;
+    setCurrentLine(line);
+  };
+
+  const continueAnnotation = (event) => {
+    const activeLine = currentLineRef.current;
+    if (!activeLine) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const point = {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    };
+
+    const updatedLine = {
+      ...activeLine,
+      points: [...activeLine.points, point],
+    };
+
+    currentLineRef.current = updatedLine;
+    setCurrentLine(updatedLine);
+  };
+
+  const finishAnnotation = () => {
+    const line = currentLineRef.current;
+    if (!line) return;
+
+    currentLineRef.current = null;
+
+    if (line.points.length > 1) {
+      setAnnotationLines((previous) => ({
+        ...previous,
+        [line.screenId]: [
+          ...(previous[line.screenId] || []),
+          line,
+        ],
+      }));
+    }
+
+    setCurrentLine(null);
+  };
+
+
+  const clearAnnotations = (screenId) => {
+    setAnnotationLines((previous) => ({
+      ...previous,
+      [screenId]: [],
+    }));
+
+    setCurrentLine((previous) =>
+      previous?.screenId === screenId ? null : previous
+    );
+  };
+
+  const startBroadcastAnnotation = (event) => {
+  if (!broadcastPenEnabled || !isBroadcasting) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const point = {
+    x: (event.clientX - rect.left) / rect.width,
+    y: (event.clientY - rect.top) / rect.height,
+  };
+
+  const line = {
+    color: broadcastPenColor,
+    points: [point],
+  };
+
+  currentBroadcastLineRef.current = line;
+  setCurrentBroadcastLine(line);
+
+  event.preventDefault();
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const continueBroadcastAnnotation = (event) => {
+  const activeLine = currentBroadcastLineRef.current;
+  if (!activeLine) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const point = {
+    x: (event.clientX - rect.left) / rect.width,
+    y: (event.clientY - rect.top) / rect.height,
+  };
+
+  const updatedLine = {
+    ...activeLine,
+    points: [...activeLine.points, point],
+  };
+
+  currentBroadcastLineRef.current = updatedLine;
+  setCurrentBroadcastLine(updatedLine);
+};
+
+const finishBroadcastAnnotation = () => {
+  const line = currentBroadcastLineRef.current;
+  if (!line) return;
+
+  currentBroadcastLineRef.current = null;
+
+  if (line.points.length > 1) {
+    setBroadcastAnnotationLines((previous) => [...previous, line]);
+  }
+
+  setCurrentBroadcastLine(null);
+};
+
+const clearBroadcastAnnotations = () => {
+  currentBroadcastLineRef.current = null;
+  setCurrentBroadcastLine(null);
+  setBroadcastAnnotationLines([]);
+};
 
 
   const viewComputer = async (pcId) => {
@@ -317,110 +522,186 @@ function App() {
           </div>
         </section>
 
-        <section className="computer-section">
-          
-        <div className="section-header">
-          <div>
-            <h2>Lab Computers</h2>
-            <p>Live computer activity</p>
-        </div>
+        
+<section className="computer-section">
+  <div className="section-header">
+    <div>
+      <h2>Lab Computers</h2>
+      <p>Live computer activity</p>
+    </div>
 
-        <div className="broadcast-controls">
-          {isBroadcasting ? (
-            <button onClick={stopTeacherBroadcast}>
-              Stop Broadcast
-            </button>
-            ) : (
-            <button onClick={startTeacherBroadcast}>
-              Start Broadcast
-            </button>
-          )}
+    <div className="broadcast-controls">
+      {isBroadcasting ? (
+        <button onClick={stopTeacherBroadcast}>
+          Stop Broadcast
+        </button>
+      ) : (
+        <button onClick={startTeacherBroadcast}>
+          Start Broadcast
+        </button>
+      )}
 
-          <button onClick={fetchComputers}>Refresh</button>
-        </div>
+      <button onClick={fetchComputers}>Refresh</button>
+    </div>
+  </div>
+
+  {isBroadcasting && (
+    <div className="broadcast-annotation-panel">
+      <div className="annotation-toolbar">
+        <button
+          className={broadcastPenEnabled ? "pen-active" : ""}
+          onClick={() =>
+            setBroadcastPenEnabled((previous) => !previous)
+          }
+        >
+          {broadcastPenEnabled ? "Disable Pen" : "Enable Pen"}
+        </button>
+
+        <label>
+          Pen color
+          <input
+            type="color"
+            value={broadcastPenColor}
+            onChange={(event) =>
+              setBroadcastPenColor(event.target.value)
+            }
+          />
+        </label>
+
+        <button onClick={clearBroadcastAnnotations}>
+          Clear Annotations
+        </button>
       </div>
-      
-          {loading ? (
-            <div className="empty-state">Loading computers...</div>
-          ) : computers.length === 0 ? (
-            <div className="empty-state">No computers connected.</div>
-          ) : (
-            <div className="computer-grid">
-              {computers.map((computer) => {
-                const frame = screenFrames[computer.pc_id];
 
-                return (
-                  <article
-                    className="computer-card compact-computer-card"
-                    key={computer.pc_id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Open ${computer.pc_id} screen`}
-                    onClick={() => setExpandedComputer(computer.pc_id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setExpandedComputer(computer.pc_id);
-                      }
-                    }}
-                  >
-                    <div className="computer-preview">
-                      {frame ? (
-                        <img
-                          className="computer-preview-image"
-                          src={frame}
-                          alt={`Live screen preview for ${computer.pc_id}`}
-                        />
-                      ) : (
-                        <div className="computer-preview-placeholder">
-                          <span className="preview-monitor-icon">▣</span>
-                          <span>
-                            {computer.status === "Online"
-                              ? "Waiting for screen..."
-                              : "Computer offline"}
-                          </span>
-                        </div>
-                      )}
+      <div className="broadcast-annotation-screen">
+        {broadcastPreviewFrame ? (
+          <img
+            src={broadcastPreviewFrame}
+            alt="Teacher broadcast preview"
+            draggable={false}
+          />
+        ) : (
+          <div className="expanded-screen-placeholder">
+            Waiting for broadcast frame...
+          </div>
+        )}
 
-                      <span
-                        className={
-                          computer.status === "Online"
-                            ? "preview-status online"
-                            : "preview-status offline"
-                        }
-                      >
-                        {computer.status}
-                      </span>
+        <svg
+          className={`annotation-canvas ${
+            broadcastPenEnabled ? "drawing-enabled" : ""
+          }`}
+          viewBox="0 0 1 1"
+          preserveAspectRatio="none"
+          onPointerDown={startBroadcastAnnotation}
+          onPointerMove={continueBroadcastAnnotation}
+          onPointerUp={finishBroadcastAnnotation}
+          onPointerCancel={finishBroadcastAnnotation}
+        >
+          {[
+            ...broadcastAnnotationLines,
+            ...(currentBroadcastLine
+              ? [currentBroadcastLine]
+              : []),
+          ].map((line, index) => (
+            <polyline
+              key={index}
+              points={line.points
+                .map((point) => `${point.x},${point.y}`)
+                .join(" ")}
+              fill="none"
+              stroke={line.color}
+              strokeWidth="0.004"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ))}
+        </svg>
+      </div>
+    </div>
+  )}
 
-                      <div
-                        className="computer-hover-controls"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <button onClick={() => viewComputer(computer.pc_id)}>
-                          View Activity
-                        </button>
-                        <button onClick={() => lockComputer(computer.pc_id)}>
-                          🔒 Lock
-                        </button>
-                        <button onClick={() => pingComputer(computer.pc_id)}>
-                          📡 Ping
-                        </button>
-                        <button onClick={() => sendMessage(computer.pc_id)}>
-                          💬 Message
-                        </button>
-                      </div>
-                    </div>
+  {loading ? (
+    <div className="empty-state">Loading computers...</div>
+  ) : computers.length === 0 ? (
+    <div className="empty-state">No computers connected.</div>
+  ) : (
+    <div className="computer-grid">
+      {computers.map((computer) => {
+        const frame = screenFrames[computer.pc_id];
 
-                    <div className="computer-card-caption">
-                      <h3>{computer.pc_id}</h3>
-                      <span>{computer.hostname || "Computer"}</span>
-                    </div>
-                  </article>
-                );
-              })}
+        return (
+          <article
+            className="computer-card compact-computer-card"
+            key={computer.pc_id}
+            tabIndex={0}
+            role="button"
+            aria-label={`Open ${computer.pc_id} screen`}
+            onClick={() => setExpandedComputer(computer.pc_id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setExpandedComputer(computer.pc_id);
+              }
+            }}
+          >
+            <div className="computer-preview">
+              {frame ? (
+                <img
+                  className="computer-preview-image"
+                  src={frame}
+                  alt={`Live screen preview for ${computer.pc_id}`}
+                />
+              ) : (
+                <div className="computer-preview-placeholder">
+                  <span className="preview-monitor-icon">▣</span>
+                  <span>
+                    {computer.status === "Online"
+                      ? "Waiting for screen..."
+                      : "Computer offline"}
+                  </span>
+                </div>
+              )}
+
+              <span
+                className={
+                  computer.status === "Online"
+                    ? "preview-status online"
+                    : "preview-status offline"
+                }
+              >
+                {computer.status}
+              </span>
+
+              <div
+                className="computer-hover-controls"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button onClick={() => viewComputer(computer.pc_id)}>
+                  View Activity
+                </button>
+                <button onClick={() => lockComputer(computer.pc_id)}>
+                  🔒 Lock
+                </button>
+                <button onClick={() => pingComputer(computer.pc_id)}>
+                  📡 Ping
+                </button>
+                <button onClick={() => sendMessage(computer.pc_id)}>
+                  💬 Message
+                </button>
+              </div>
             </div>
-          )}
-        </section>
+
+            <div className="computer-card-caption">
+              <h3>{computer.pc_id}</h3>
+              <span>{computer.hostname || "Computer"}</span>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  )}
+</section>
+
       </main>
 
       {selectedComputer && (
@@ -501,24 +782,96 @@ function App() {
               </button>
             </div>
 
-            <div className="expanded-screen-viewer">
-              {screenFrames[expandedComputer] ? (
-                <img
-                  src={screenFrames[expandedComputer]}
-                  alt={`Enlarged screen of ${expandedComputer}`}
-                />
-              ) : (
-                <div className="expanded-screen-placeholder">
-                  <span className="preview-monitor-icon">▣</span>
-                  <p>
-                    {computers.find((pc) => pc.pc_id === expandedComputer)
-                      ?.status === "Online"
-                      ? "Waiting for the first screen frame..."
-                      : "This computer is offline."}
-                  </p>
-                </div>
-              )}
-            </div>
+            
+<div className="expanded-screen-viewer">
+  <div className="annotation-toolbar">
+    <button
+      onClick={() => setAnnotationMode((previous) => !previous)}
+    >
+      {annotationMode ? "Disable Pen" : "Enable Pen"}
+    </button>
+
+    <label>
+      Pen color
+      <input
+        type="color"
+        value={annotationColor}
+        onChange={(event) => setAnnotationColor(event.target.value)}
+      />
+    </label>
+
+    <button onClick={() => clearAnnotations(expandedComputer)}>
+      Clear Annotations
+    </button>
+  </div>
+
+  <div className="annotation-screen">
+    {screenFrames[expandedComputer] ? (
+      <img
+        src={screenFrames[expandedComputer]}
+        alt={`Enlarged screen of ${expandedComputer}`}
+        draggable={false}
+      />
+    ) : (
+      <div className="expanded-screen-placeholder">
+        <span className="preview-monitor-icon">▣</span>
+        <p>
+          {computers.find((pc) => pc.pc_id === expandedComputer)
+            ?.status === "Online"
+            ? "Waiting for the first screen frame..."
+            : "This computer is offline."}
+        </p>
+      </div>
+    )}
+
+    <svg
+      ref={annotationCanvasRef}
+      className={`annotation-canvas ${annotationMode ? "drawing-enabled" : ""}`}
+      viewBox="0 0 1 1"
+      preserveAspectRatio="none"
+      onPointerDown={(event) => {
+  console.log("Pen clicked", {
+    annotationMode,
+    screen: expandedComputer,
+  });
+
+  if (!annotationMode) return;
+
+  event.preventDefault();
+  event.currentTarget.setPointerCapture(event.pointerId);
+  startAnnotation(event, expandedComputer);
+}}
+      onPointerMove={(event) => {
+  console.log("Pointer moving", {
+    drawingEnabled: annotationMode,
+    hasActiveLine: Boolean(currentLineRef.current),
+  });
+  continueAnnotation(event);
+}}
+      onPointerUp={finishAnnotation}
+      onPointerCancel={finishAnnotation}
+    >
+      {(annotationLines[expandedComputer] || [])
+        .concat(
+          currentLine?.screenId === expandedComputer ? [currentLine] : []
+        )
+        .map((line, index) => (
+          <polyline
+            key={index}
+            points={line.points
+              .map((point) => `${point.x},${point.y}`)
+              .join(" ")}
+            fill="none"
+            stroke={line.color}
+            strokeWidth="0.004"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+    </svg>
+  </div>
+</div>
+
           </section>
         </div>
       )}
