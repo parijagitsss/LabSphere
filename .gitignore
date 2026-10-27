@@ -1,4 +1,5 @@
-﻿__pycache__/
+﻿
+__pycache__/
 *.py[cod]
 .venv/
 venv/
@@ -9,6 +10,5 @@ node_modules/
 dist/
 build/
 
-# Python cache files
-__pycache__/
-*.py[cod]
+# Local student device identity
+student-client/device_config.json

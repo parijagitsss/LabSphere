@@ -35,6 +35,108 @@ function App() {
     return response.json();
   };
 
+  
+  const notifyStudentsBroadcast = async (command) => {
+    try {
+      const response = await fetch(`${API_URL}/computers/broadcast`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          command,
+          data: {},
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to notify students:", response.status);
+      }
+    } catch (error) {
+      console.error("Could not notify students:", error);
+    }
+  };
+
+  
+  const startTeacherBroadcast = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: 5,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+
+      teacherStreamRef.current = stream;
+      setIsBroadcasting(true);
+      notifyStudentsBroadcast("START_TEACHER_BROADCAST");
+
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = 1280;
+      canvas.height = 720;
+
+      const sendFrame = async () => {
+        if (!video.videoWidth || !video.videoHeight) return;
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const frame = canvas.toDataURL("image/jpeg", 0.6).split(",")[1];
+
+        try {
+          await fetch(`${API_URL}/teacher/broadcast/frame`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ frame }),
+          });
+        } catch (error) {
+          console.error("Failed to send teacher screen frame:", error);
+        }
+      };
+
+      broadcastIntervalRef.current = setInterval(sendFrame, 1000);
+
+      stream.getVideoTracks()[0].addEventListener("ended", () => {
+        stopTeacherBroadcast();
+      });
+    } catch (error) {
+      console.error("Could not start teacher broadcast:", error);
+      stopTeacherBroadcast();
+      alert("Screen sharing was cancelled or could not be started.");
+    }
+  };
+
+  const stopTeacherBroadcast = () => {
+    if (broadcastIntervalRef.current) {
+      clearInterval(broadcastIntervalRef.current);
+      broadcastIntervalRef.current = null;
+    }
+
+    if (teacherStreamRef.current) {
+      teacherStreamRef.current.getTracks().forEach((track) => track.stop());
+      teacherStreamRef.current = null;
+    }
+
+    setIsBroadcasting(false);
+    notifyStudentsBroadcast("STOP_TEACHER_BROADCAST");
+
+    fetch(`${API_URL}/teacher/broadcast/frame`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frame: null }),
+    }).catch((error) => {
+      console.error("Failed to clear teacher broadcast frame:", error);
+    });
+  };
+
+
   const viewComputer = async (pcId) => {
     try {
       const response = await fetch(`${API_URL}/computers/${pcId}/activity`);

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import socket
+from click import command
 import websockets
 import ctypes
 import psutil
@@ -11,7 +12,48 @@ import mss
 from PIL import Image
 import uuid
 from pathlib import Path
+import tkinter as tk
+from PIL import ImageTk
 
+
+class TeacherBroadcastViewer:
+    def __init__(self):
+        self.root = None
+        self.label = None
+        self.photo = None
+
+    def show_frame(self, frame_bytes):
+        try:
+            image = Image.open(io.BytesIO(frame_bytes)).convert("RGB")
+            image.thumbnail((1280, 720))
+
+            if self.root is None or not self.root.winfo_exists():
+                self.root = tk.Tk()
+                self.root.title("LabSphere - Teacher Broadcast")
+                self.root.geometry("1000x600")
+
+                self.label = tk.Label(self.root)
+                self.label.pack(expand=True, fill="both")
+
+            self.photo = ImageTk.PhotoImage(image)
+            self.label.configure(image=self.photo)
+
+            self.root.update_idletasks()
+            self.root.update()
+
+        except Exception as error:
+            print("Teacher broadcast display error:", error)
+
+    def close(self):
+        if self.root is not None:
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+
+            self.root = None
+            self.label = None
+            self.photo = None
 
 def get_device_id():
     config_path = Path(__file__).with_name("device_config.json")
@@ -164,6 +206,7 @@ async def student_client():
             return
 
         pc_id = registration_response.get("pc_id")
+        broadcast_viewer = TeacherBroadcastViewer()
         print(f"Assigned computer ID: {pc_id}")
 
         asyncio.create_task(send_heartbeat(websocket))
@@ -182,6 +225,18 @@ async def student_client():
 
             command = json.loads(message)
 
+            if command.get("type") == "TEACHER_SCREEN_FRAME":
+                frame_data = command.get("frame")
+
+                if frame_data:
+                    try:
+                        frame_bytes = base64.b64decode(frame_data)
+                        broadcast_viewer.show_frame(frame_bytes)
+                    except Exception as error:
+                        print("Invalid teacher screen frame:", error)
+
+                continue
+
             if command.get("type") != "COMMAND":
                 continue
 
@@ -193,6 +248,7 @@ async def student_client():
 
             elif command_name == "STOP_TEACHER_BROADCAST":
                 print("Teacher screen broadcast has stopped")
+                broadcast_viewer.close()
 
             elif command_name == "START_MONITORING":
                 if screen_task is None or screen_task.done():
@@ -240,6 +296,8 @@ async def student_client():
             else:
                 print("TEACHER COMMAND:", command_name)
                 print("COMMAND DATA:", data)
+
+        
     
 async def send_heartbeat(websocket):
     while True:

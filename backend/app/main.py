@@ -210,18 +210,45 @@ def health_check():
     return {"status": "online"}
 
 
+
 @app.post("/teacher/broadcast/frame")
 async def receive_teacher_broadcast_frame(payload: dict):
     global teacher_screen_frame
 
     frame = payload.get("frame")
 
+    if frame is None:
+        teacher_screen_frame = None
+        return {"status": "broadcast_stopped"}
+
     if not frame:
         return {"status": "missing_frame"}
 
     teacher_screen_frame = frame
+    sent_to = []
 
-    return {"status": "frame_received"}
+    for pc_id, computer in list(manager.computers.items()):
+        websocket = computer.get("websocket")
+
+        if not websocket:
+            continue
+
+        try:
+            await websocket.send_json({
+                "type": "TEACHER_SCREEN_FRAME",
+                "frame": frame
+            })
+            sent_to.append(pc_id)
+
+        except Exception as error:
+            print(
+                f"Teacher broadcast failed for {pc_id}: {error}"
+            )
+
+    return {
+        "status": "frame_sent",
+        "sent_to": sent_to
+    }
 
 
 @app.get("/teacher/broadcast/frame")
