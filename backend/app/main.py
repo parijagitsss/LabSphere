@@ -696,24 +696,28 @@ async def teacher_overlay_websocket(websocket: WebSocket):
                     )
 
                 elif client_role == "dashboard":
-                    if message.get("type") == "BROADCAST_STATE":
-                        if message.get("broadcasting") is True:
-                            start_teacher_overlay()
 
-                            # Wait for the toolbar to connect to the backend.
-                            for attempt in range(20):
-                                if teacher_overlay_clients:
-                                    break
-                                await asyncio.sleep(0.25)
+                    if (
+                        message.get("type") == "BROADCAST_STATE"
+                        and message.get("broadcasting") is True
+                    ):
+                        start_teacher_overlay()
 
-                            if not teacher_overlay_clients:
-                                print("Teacher toolbar failed to connect.")
-                                continue
+                        # Wait for the toolbar to connect to the backend.
+                        for attempt in range(20):
+                            if teacher_overlay_clients:
+                                break
+                            await asyncio.sleep(0.25)
 
-                        await forward_overlay_message(
-                            teacher_overlay_clients,
-                            message
-                        )
+                        if not teacher_overlay_clients:
+                            print("Teacher toolbar failed to connect.")
+                            continue
+
+                    # Forward ALL dashboard commands to the desktop toolbar.
+                    await forward_overlay_message(
+                        teacher_overlay_clients,
+                        message
+                    )
 
     except WebSocketDisconnect:
         print(f"Teacher {client_role} disconnected")

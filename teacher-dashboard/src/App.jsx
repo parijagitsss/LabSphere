@@ -622,9 +622,19 @@ const clearBroadcastAnnotations = () => {
 
     <div className="broadcast-controls" id="broadcast">
       {isBroadcasting ? (
-        <button onClick={stopTeacherBroadcast}>
-          Stop Broadcast
-        </button>
+        <>
+          <button onClick={stopTeacherBroadcast}>
+            Stop Broadcast
+          </button>
+
+          <button
+            onClick={() =>
+              sendOverlayCommand({ type: "SHOW_OVERLAY" })
+            }
+          >
+            Annotation Tools
+          </button>
+        </>
       ) : (
         <button onClick={startTeacherBroadcast}>
           Start Broadcast

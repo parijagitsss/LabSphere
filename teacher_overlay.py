@@ -497,7 +497,7 @@ class TeacherToolbar(QWidget):
         self.setLayout(layout)
         self.pen_button.clicked.connect(self.toggle_pen)
         self.clear_button.clicked.connect(self.clear_annotations)
-        self.exit_button.clicked.connect(self.close)
+        self.exit_button.clicked.connect(self.hide_toolbar)
         self.mouse_hook = GlobalMouseHook(self, self.bridge, self.ink_overlay)
         self.target_selected.connect(self.apply_target)
         self.bridge.signals.connected.connect(lambda: self.status_label.setText("Connected"))
@@ -647,6 +647,14 @@ class TeacherToolbar(QWidget):
                     border: 3px solid #b7a9f5;
                 }}
             """)
+    def hide_toolbar(self):
+        self.pen_enabled = False
+        self.mouse_hook.pen_enabled = False
+        self.mouse_hook.drawing = False
+
+        self.pen_button.setText("Pen OFF")
+
+        self.hide()
 
     def clear_annotations(self):
         self.ink_overlay.clear()
@@ -689,6 +697,25 @@ class TeacherToolbar(QWidget):
                 self.ink_overlay.clear()
                 self.ink_overlay.hide()
                 self.hide()
+
+        elif kind == "SHOW_OVERLAY":
+            if self.broadcasting:
+                self.show()
+                self.raise_()
+
+                if self.mouse_hook.target_hwnd and self.mouse_hook.target_rect:
+                    self.status_label.setText("Broadcast area ready")
+
+                    self._set_ink_overlay_geometry(
+                        self.mouse_hook.target_rect
+                    )
+                    self.ink_overlay.show()
+                    self.ink_overlay.enable_native_click_through()
+                else:
+                    self.mouse_hook.selecting_target = True
+                    self.status_label.setText(
+                        "Click once inside shared content to calibrate"
+                    )
 
         elif kind == "CLEAR_ANNOTATIONS":
             self.ink_overlay.clear()
