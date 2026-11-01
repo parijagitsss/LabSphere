@@ -463,7 +463,6 @@ class TeacherToolbar(QWidget):
         self.status_label.setToolTip("Hold and drag to move the toolbar")
         self.status_label.installEventFilter(self)
         self._drag_offset = None
-        self.target_button = QPushButton("Set Target")
         self.pen_button = QPushButton("Pen OFF")
 
         self.color_buttons = []
@@ -487,7 +486,7 @@ class TeacherToolbar(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(7)
-        for widget in (self.status_label, self.target_button, self.pen_button):
+        for widget in (self.status_label, self.pen_button):
             layout.addWidget(widget)
 
         for button in self.color_buttons:
@@ -496,7 +495,6 @@ class TeacherToolbar(QWidget):
         for widget in (self.clear_button, self.exit_button):
             layout.addWidget(widget)
         self.setLayout(layout)
-        self.target_button.clicked.connect(self.begin_target_selection)
         self.pen_button.clicked.connect(self.toggle_pen)
         self.clear_button.clicked.connect(self.clear_annotations)
         self.exit_button.clicked.connect(self.close)
@@ -546,11 +544,6 @@ class TeacherToolbar(QWidget):
 
         return super().eventFilter(watched, event)
 
-    def begin_target_selection(self):
-        self.mouse_hook.selecting_target = True
-        self.status_label.setText("Click the shared app window")
-        self.target_button.setText("Waiting...")
-
     def _set_ink_overlay_geometry(self, rect):
         # WH_MOUSE_LL and Win32 window rectangles use physical screen pixels.
         # Qt widget geometry uses device-independent pixels on scaled displays.
@@ -571,10 +564,15 @@ class TeacherToolbar(QWidget):
         self.ink_overlay.show()
         self.ink_overlay.enable_native_click_through()
         self.ink_overlay.raise_()
-        self.target_button.setText("Target Set")
-        self.status_label.setText("Target window ready")
+
+        self.status_label.setText("Broadcast area ready")
         self.mouse_hook.pen_enabled = self.pen_enabled
-        self.bridge.send({"type": "TARGET_WINDOW_SET", "width": rect[2] - rect[0], "height": rect[3] - rect[1]})
+
+        self.bridge.send({
+            "type": "TARGET_WINDOW_SET",
+            "width": rect[2] - rect[0],
+            "height": rect[3] - rect[1]
+        })
 
     def refresh_target_position(self):
         hwnd = self.mouse_hook.target_hwnd
@@ -589,8 +587,12 @@ class TeacherToolbar(QWidget):
             self.mouse_hook.target_content_hwnd = None
             self.status_label.setText("Target window closed")
             return
-        self.mouse_hook.target_rect = rect
-        self._set_ink_overlay_geometry(rect)
+        self.mouse_hook._refresh_capture_rect()
+
+        if self.mouse_hook.target_rect:
+            self._set_ink_overlay_geometry(
+                self.mouse_hook.target_rect
+            )
         if not self.ink_overlay.isVisible():
             self.ink_overlay.show()
             self.ink_overlay.enable_native_click_through()
@@ -662,11 +664,27 @@ class TeacherToolbar(QWidget):
             if self.broadcasting:
                 self.show()
                 self.raise_()
-                self.status_label.setText("Ready to annotate")
+
+                self.mouse_hook.selecting_target = True
+                self.mouse_hook.pen_enabled = False
+                self.pen_enabled = False
+                self.pen_button.setText("Pen OFF")
+
+                self.status_label.setText(
+                    "Click once inside shared content to calibrate"
+                )
             else:
                 self.pen_enabled = False
                 self.mouse_hook.pen_enabled = False
                 self.mouse_hook.drawing = False
+
+                # Reset calibration for the next broadcast
+                self.mouse_hook.selecting_target = False
+                self.mouse_hook.target_hwnd = None
+                self.mouse_hook.target_content_hwnd = None
+                self.mouse_hook.target_rect = None
+                self.mouse_hook.capture_rect = None
+
                 self.pen_button.setText("Pen OFF")
                 self.ink_overlay.clear()
                 self.ink_overlay.hide()
