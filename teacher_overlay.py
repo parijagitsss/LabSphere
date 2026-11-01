@@ -5,7 +5,7 @@ import threading
 import time
 
 import websockets
-from PySide6.QtCore import QObject, Signal, Qt, QTimer, QRect
+from PySide6.QtCore import QObject, Signal, Qt, QTimer, QRect, QEvent
 from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QHBoxLayout, QLabel
 BACKEND_URL = "ws://127.0.0.1:8000/ws/teacher-overlay"
@@ -417,7 +417,7 @@ class TeacherToolbar(QWidget):
         super().__init__()
         self.bridge = BridgeClient()
         self.color_index = 0
-        self.color_buttons = []
+        self.color_buttons = [] 
         self.pen_enabled = False
         self.broadcasting = False
         self.ink_overlay = DesktopInkOverlay()
@@ -458,7 +458,11 @@ class TeacherToolbar(QWidget):
                 border: 1px solid #b7a9f5;
             }
         """)
-        self.status_label = QLabel("Connecting...")
+        self.status_label = QLabel("⠿  Connecting...")
+        self.status_label.setCursor(Qt.OpenHandCursor)
+        self.status_label.setToolTip("Hold and drag to move the toolbar")
+        self.status_label.installEventFilter(self)
+        self._drag_offset = None
         self.target_button = QPushButton("Set Target")
         self.pen_button = QPushButton("Pen OFF")
 
@@ -475,6 +479,8 @@ class TeacherToolbar(QWidget):
             )
 
             self.color_buttons.append(button)
+
+        self.update_color_buttons()
 
         self.clear_button = QPushButton("Clear")
         self.exit_button = QPushButton("Exit")
@@ -507,6 +513,38 @@ class TeacherToolbar(QWidget):
         self.position_timer = QTimer(self)
         self.position_timer.timeout.connect(self.refresh_target_position)
         self.position_timer.start(250)
+
+    def eventFilter(self, watched, event):
+        if watched == self.status_label:
+
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_offset = (
+                        event.globalPosition().toPoint()
+                        - self.frameGeometry().topLeft()
+                    )
+                    self.status_label.setCursor(Qt.ClosedHandCursor)
+                    return True
+
+            elif event.type() == QEvent.Type.MouseMove:
+                if (
+                    self._drag_offset is not None
+                    and event.buttons() & Qt.MouseButton.LeftButton
+                ):
+                    new_position = (
+                        event.globalPosition().toPoint()
+                        - self._drag_offset
+                    )
+                    self.move(new_position)
+                    return True
+
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_offset = None
+                    self.status_label.setCursor(Qt.OpenHandCursor)
+                    return True
+
+        return super().eventFilter(watched, event)
 
     def begin_target_selection(self):
         self.mouse_hook.selecting_target = True

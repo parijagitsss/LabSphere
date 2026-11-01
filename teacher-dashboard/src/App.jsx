@@ -26,9 +26,7 @@ function App() {
   const [currentBroadcastLine, setCurrentBroadcastLine] = useState(null);
   const currentBroadcastLineRef = useRef(null);
   const broadcastVideoRef = useRef(null);
-  const broadcastCanvasRef = useRef(null);
-  const [broadcastPreviewFrame, setBroadcastPreviewFrame] = useState(null);
-  const [broadcastFrameSize, setBroadcastFrameSize] = useState({ width: 16, height: 9 });
+  const broadcastCanvasRef = useRef(null);  const [broadcastFrameSize, setBroadcastFrameSize] = useState({ width: 16, height: 9 });
   const broadcastAnnotationLinesRef = useRef([]);
   const teacherOverlaySocketRef = useRef(null);
   useEffect(() => {
@@ -238,9 +236,8 @@ function App() {
         context.stroke();
       });
 
-      // Update the teacher's preview with the composited frame.
+      // Generate the composited frame for student broadcasting.
       const imageData = canvas.toDataURL("image/jpeg", 0.6);
-      setBroadcastPreviewFrame(imageData);
 
       // Send the same annotated frame to the backend.
       const frame = imageData.split(",")[1];
@@ -637,59 +634,6 @@ const clearBroadcastAnnotations = () => {
       <button onClick={fetchComputers}>Refresh</button>
     </div>
   </div>
-
-  {isBroadcasting && (
-    <div className="broadcast-annotation-panel">
-      <div className="annotation-toolbar">
-        <span>Use the floating LabSphere Teacher Tools toolbar to annotate directly on the shared application window.</span>
-        <button onClick={clearBroadcastAnnotations}>Clear Annotations</button>
-      </div>
-
-      <div
-        className="broadcast-annotation-screen"
-        style={{ aspectRatio: `${broadcastFrameSize.width} / ${broadcastFrameSize.height}` }}
-      >
-        {broadcastPreviewFrame ? (
-          <img
-            src={broadcastPreviewFrame}
-            alt="Teacher broadcast preview"
-            draggable={false}
-            style={{ pointerEvents: "none", userSelect: "none" }}
-          />
-        ) : (
-          <div className="expanded-screen-placeholder">
-            Waiting for broadcast frame...
-          </div>
-        )}
-
-        <svg
-          className="annotation-canvas"
-          style={{ pointerEvents: "none" }}
-          viewBox="0 0 1 1"
-          preserveAspectRatio="none"
-        >
-          {[
-            ...broadcastAnnotationLines,
-            ...(currentBroadcastLine
-              ? [currentBroadcastLine]
-              : []),
-          ].map((line, index) => (
-            <polyline
-              key={index}
-              points={line.points
-                .map((point) => `${point.x},${point.y}`)
-                .join(" ")}
-              fill="none"
-              stroke={line.color}
-              strokeWidth="0.004"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          ))}
-        </svg>
-      </div>
-    </div>
-  )}
 
   {loading ? (
     <div className="empty-state">Loading computers...</div>
