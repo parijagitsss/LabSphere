@@ -8,7 +8,6 @@ import websockets
 from PySide6.QtCore import QObject, Signal, Qt, QTimer, QRect
 from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QHBoxLayout, QLabel
-
 BACKEND_URL = "ws://127.0.0.1:8000/ws/teacher-overlay"
 COLORS = [
     ("Red", "#ff3333"),
@@ -418,6 +417,7 @@ class TeacherToolbar(QWidget):
         super().__init__()
         self.bridge = BridgeClient()
         self.color_index = 0
+        self.color_buttons = []
         self.pen_enabled = False
         self.broadcasting = False
         self.ink_overlay = DesktopInkOverlay()
@@ -461,18 +461,37 @@ class TeacherToolbar(QWidget):
         self.status_label = QLabel("Connecting...")
         self.target_button = QPushButton("Set Target")
         self.pen_button = QPushButton("Pen OFF")
-        self.color_button = QPushButton("Color: Red")
+
+        self.color_buttons = []
+
+        for index, (name, color) in enumerate(COLORS):
+            button = QPushButton()
+            button.setFixedSize(24, 24)
+            button.setCheckable(True)
+            button.setToolTip(f"{name} pen")
+
+            button.clicked.connect(
+                lambda checked=False, i=index: self.select_color(i)
+            )
+
+            self.color_buttons.append(button)
+
         self.clear_button = QPushButton("Clear")
         self.exit_button = QPushButton("Exit")
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(7)
-        for widget in (self.status_label, self.target_button, self.pen_button, self.color_button, self.clear_button, self.exit_button):
+        for widget in (self.status_label, self.target_button, self.pen_button):
+            layout.addWidget(widget)
+
+        for button in self.color_buttons:
+            layout.addWidget(button)
+
+        for widget in (self.clear_button, self.exit_button):
             layout.addWidget(widget)
         self.setLayout(layout)
         self.target_button.clicked.connect(self.begin_target_selection)
         self.pen_button.clicked.connect(self.toggle_pen)
-        self.color_button.clicked.connect(self.change_color)
         self.clear_button.clicked.connect(self.clear_annotations)
         self.exit_button.clicked.connect(self.close)
         self.mouse_hook = GlobalMouseHook(self, self.bridge, self.ink_overlay)
@@ -480,7 +499,7 @@ class TeacherToolbar(QWidget):
         self.bridge.signals.connected.connect(lambda: self.status_label.setText("Connected"))
         self.bridge.signals.disconnected.connect(lambda: self.status_label.setText("Disconnected"))
         self.bridge.signals.message_received.connect(self.handle_dashboard_message)
-        self.resize(640, 66)
+        self.resize(700, 66)
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.x() + (screen.width() - self.width()) // 2, screen.y() + screen.height() - self.height() - 45)
         self.hide()
@@ -546,13 +565,48 @@ class TeacherToolbar(QWidget):
         self.pen_button.setText("Pen ON" if self.pen_enabled else "Pen OFF")
         self.bridge.send({"type": "PEN_STATE", "enabled": self.pen_enabled})
 
-    def change_color(self):
-        self.color_index = (self.color_index + 1) % len(COLORS)
-        color_name, color_value = COLORS[self.color_index]
+    def select_color(self, index):
+        self.color_index = index
+
+        color_name, color_value = COLORS[index]
+
         self.mouse_hook.color = color_value
         self.ink_overlay.current_color = color_value
-        self.color_button.setText(f"Color: {color_name}")
-        self.bridge.send({"type": "PEN_COLOR", "color": color_value})
+
+        self.update_color_buttons()
+
+        self.bridge.send({
+            "type": "PEN_COLOR",
+            "color": color_value
+        })
+
+
+    def update_color_buttons(self):
+        for index, button in enumerate(self.color_buttons):
+            name, color = COLORS[index]
+            selected = index == self.color_index
+
+            button.setChecked(selected)
+
+            border = "#b7a9f5" if selected else "#81799f"
+            border_width = "3px" if selected else "1px"
+
+            button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {color};
+                    border: {border_width} solid {border};
+                    border-radius: 11px;
+                    padding: 0px;
+                }}
+
+                QPushButton:hover {{
+                    border: 3px solid #b7a9f5;
+                }}
+
+                QPushButton:checked {{
+                    border: 3px solid #b7a9f5;
+                }}
+            """)
 
     def clear_annotations(self):
         self.ink_overlay.clear()
