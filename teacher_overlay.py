@@ -424,10 +424,39 @@ class TeacherToolbar(QWidget):
         self.setWindowTitle("LabSphere Teacher Tools")
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setStyleSheet("""
-            QWidget { background-color: #20242c; color: white; border-radius: 10px; }
-            QPushButton { background-color: #343b48; color: white; border: none; padding: 9px 12px; border-radius: 6px; font-weight: bold; }
-            QPushButton:hover { background-color: #465166; }
-            QLabel { padding: 4px; }
+            QWidget {
+                background-color: #24213d;
+                color: #f8f6ff;
+                border: 1px solid #6252c4;
+                border-radius: 14px;
+                font-family: 'Segoe UI';
+                font-size: 10pt;
+            }
+            QLabel {
+                color: #c9c2f0;
+                padding: 5px 9px;
+                border: none;
+                font-size: 9pt;
+                font-weight: 600;
+            }
+            QPushButton {
+                background-color: #353052;
+                color: #f8f6ff;
+                border: 1px solid #514879;
+                padding: 9px 13px;
+                border-radius: 9px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #49416f;
+                border-color: #a99bf0;
+            }
+            QPushButton:pressed { background-color: #6252c4; }
+            QPushButton:checked {
+                background-color: #7767d9;
+                color: white;
+                border: 1px solid #b7a9f5;
+            }
         """)
         self.status_label = QLabel("Connecting...")
         self.target_button = QPushButton("Set Target")
@@ -451,7 +480,7 @@ class TeacherToolbar(QWidget):
         self.bridge.signals.connected.connect(lambda: self.status_label.setText("Connected"))
         self.bridge.signals.disconnected.connect(lambda: self.status_label.setText("Disconnected"))
         self.bridge.signals.message_received.connect(self.handle_dashboard_message)
-        self.resize(600, 65)
+        self.resize(640, 66)
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.x() + (screen.width() - self.width()) // 2, screen.y() + screen.height() - self.height() - 45)
         self.hide()

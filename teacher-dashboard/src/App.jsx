@@ -589,7 +589,7 @@ const clearBroadcastAnnotations = () => {
   return (
     <div className="app">
       <header className="topbar">
-        <div>
+        <div className="topbar-heading">
           <h1>LabSphere</h1>
           <p>Smart Laboratory Management System</p>
         </div>
@@ -599,8 +599,8 @@ const clearBroadcastAnnotations = () => {
         </div>
       </header>
 
-      <main className="dashboard">
-        <section className="stats">
+        <main className="dashboard">
+        <section className="stats" id="overview">
           <div className="stat-card">
             <span>Total Computers</span>
             <strong>{computers.length}</strong>
@@ -616,14 +616,14 @@ const clearBroadcastAnnotations = () => {
         </section>
 
         
-<section className="computer-section">
+<section className="computer-section" id="computers">
   <div className="section-header">
     <div>
       <h2>Lab Computers</h2>
       <p>Live computer activity</p>
     </div>
 
-    <div className="broadcast-controls">
+    <div className="broadcast-controls" id="broadcast">
       {isBroadcasting ? (
         <button onClick={stopTeacherBroadcast}>
           Stop Broadcast
