@@ -1221,7 +1221,7 @@ button {
   width: 100%;
   max-width: 1280px;
   margin: 0 auto;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 9; /* overridden by the live capture dimensions in React */
   border: 1px solid #303d57;
   border-radius: 14px;
   background: #101827;
@@ -1277,7 +1277,7 @@ button {
   position: relative;
   overflow: hidden;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 9; /* overridden by the live capture dimensions in React */
   border: 1px solid #303d57;
   border-radius: 14px;
   background: #101827;
@@ -1527,4 +1527,241 @@ button {
 
 .topbar p {
   color: #dbe5ff !important;
+}
+
+
+/* Full-screen computer preview */
+.screen-focus-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: #080d18;
+}
+
+.screen-focus-modal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #080d18;
+  border-radius: 8px;
+}
+
+.screen-focus-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.screen-focus-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.8);
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.screen-focus-modal:hover .screen-focus-close,
+.screen-focus-close:focus-visible {
+  opacity: 1;
+}
+
+.screen-focus-placeholder {
+  padding: 24px;
+  color: #ffffff;
+  text-align: center;
+  font-size: 16px;
+}
+
+@media (max-width: 600px) {
+  .screen-focus-backdrop {
+    padding: 0;
+  }
+
+  .screen-focus-modal {
+    border-radius: 0;
+  }
+
+  .screen-focus-close {
+    opacity: 1;
+  }
+}
+
+
+/* Remote screen viewing indicator */
+.screen-viewing-indicator {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(12, 18, 30, 0.88);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.screen-viewing-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ff3434;
+  box-shadow: 0 0 10px rgba(255, 52, 52, 0.75);
+  animation: viewing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes viewing-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(255, 52, 52, 0.75);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 3px rgba(255, 52, 52, 0.4);
+  }
+}
+
+
+/* Enlarged screen focus mode */
+.screen-focus-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: #080d18;
+}
+
+.screen-focus-modal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #080d18;
+}
+
+.screen-focus-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.screen-focus-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.85);
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.screen-focus-modal:hover .screen-focus-close,
+.screen-focus-close:focus-visible {
+  opacity: 1;
+}
+
+.screen-focus-placeholder {
+  color: white;
+  text-align: center;
+  padding: 24px;
+}
+
+@media (max-width: 600px) {
+  .screen-focus-backdrop {
+    padding: 0;
+  }
+
+  .screen-focus-close {
+    opacity: 1;
+  }
+}
+
+
+/* Remote screen viewing indicator */
+.screen-viewing-indicator {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(12, 18, 30, 0.88);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.screen-viewing-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ff3434;
+  box-shadow: 0 0 10px rgba(255, 52, 52, 0.75);
+  animation: viewing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes viewing-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(255, 52, 52, 0.75);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 3px rgba(255, 52, 52, 0.4);
+  }
 }

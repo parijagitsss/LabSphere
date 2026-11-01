@@ -1,6 +1,9 @@
 import asyncio
 import json
 from datetime import datetime
+import os
+import subprocess
+import sys
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +28,52 @@ app.add_middleware(
 manager = ConnectionManager()
 # Latest screen frame for each monitored computer
 screen_frames = {}
-teacher_screen_frame = None
+teacher_screen_frame = None 
+
+# Desktop annotation communication bridge
+teacher_overlay_clients = set()
+teacher_dashboard_clients = set()
+# Teacher desktop toolbar process
+teacher_overlay_process = None
+
+def start_teacher_overlay():
+    global teacher_overlay_process
+
+    if teacher_overlay_process and teacher_overlay_process.poll() is None:
+        print("Teacher toolbar is already running.")
+        return
+
+    project_dir = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+
+    overlay_script = os.path.join(project_dir, "teacher_overlay.py")
+
+    if not os.path.exists(overlay_script):
+        print(f"Teacher toolbar script not found: {overlay_script}")
+        return
+
+    teacher_overlay_process = subprocess.Popen(
+        [sys.executable, overlay_script],
+        cwd=project_dir
+    )
+
+    print("Teacher toolbar launched automatically.")
+
+
+async def forward_overlay_message(clients, message):
+    """Forward a message to all connected clients in a group."""
+    disconnected = []
+
+    for client in list(clients):
+        try:
+            await client.send_json(message)
+        except Exception as error:
+            print(f"Overlay bridge send failed: {error}")
+            disconnected.append(client)
+
+    for client in disconnected:
+        clients.discard(client)
 class SessionCreate(BaseModel):
     subject: str
     batch: str
@@ -598,3 +646,84 @@ async def check_computer_status():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(check_computer_status())
+
+# ==========================================
+# TEACHER DESKTOP ANNOTATION WEBSOCKET
+# ==========================================
+
+@app.websocket("/ws/teacher-overlay")
+async def teacher_overlay_websocket(websocket: WebSocket):
+    await websocket.accept()
+
+    client_role = None
+
+    try:
+        # First message identifies the connecting application
+        registration = await websocket.receive_json()
+        client_role = registration.get("role")
+
+        if client_role == "overlay":
+            teacher_overlay_clients.add(websocket)
+            print("Teacher desktop overlay connected")
+
+        elif client_role == "dashboard":
+            teacher_dashboard_clients.add(websocket)
+            print("Teacher dashboard annotation bridge connected")
+
+        else:
+            await websocket.close(code=1008)
+            return
+
+        # Receive and forward messages
+        while True:
+                message = await websocket.receive_json()
+
+                print(
+                    f"[Annotation Bridge] Received from {client_role}: "
+                    f"{message.get('type')} | "
+                    f"Action: {message.get('action', '')}"
+                )
+
+                if client_role == "overlay":
+                    print(
+                        f"[Annotation Bridge] Forwarding to "
+                        f"{len(teacher_dashboard_clients)} dashboard client(s)"
+                    )
+
+                    await forward_overlay_message(
+                        teacher_dashboard_clients,
+                        message
+                    )
+
+                elif client_role == "dashboard":
+                    if message.get("type") == "BROADCAST_STATE":
+                        if message.get("broadcasting") is True:
+                            start_teacher_overlay()
+
+                            # Wait for the toolbar to connect to the backend.
+                            for attempt in range(20):
+                                if teacher_overlay_clients:
+                                    break
+                                await asyncio.sleep(0.25)
+
+                            if not teacher_overlay_clients:
+                                print("Teacher toolbar failed to connect.")
+                                continue
+
+                        await forward_overlay_message(
+                            teacher_overlay_clients,
+                            message
+                        )
+
+    except WebSocketDisconnect:
+        print(f"Teacher {client_role} disconnected")
+
+    except Exception as error:
+        print(f"Teacher overlay bridge error: {error}")
+
+    finally:
+        if client_role == "overlay":
+            teacher_overlay_clients.discard(websocket)
+
+        elif client_role == "dashboard":
+            teacher_dashboard_clients.discard(websocket)

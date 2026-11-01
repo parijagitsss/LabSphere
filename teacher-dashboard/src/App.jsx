@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-const API_URL = "http://10.19.154.84:8000";
+const API_URL = "http://127.0.0.1:8000";
 
 function App() {
   const [computers, setComputers] = useState([]);
@@ -28,11 +28,75 @@ function App() {
   const broadcastVideoRef = useRef(null);
   const broadcastCanvasRef = useRef(null);
   const [broadcastPreviewFrame, setBroadcastPreviewFrame] = useState(null);
+  const [broadcastFrameSize, setBroadcastFrameSize] = useState({ width: 16, height: 9 });
   const broadcastAnnotationLinesRef = useRef([]);
+  const teacherOverlaySocketRef = useRef(null);
   useEffect(() => {
   broadcastAnnotationLinesRef.current = broadcastAnnotationLines;
 }, [broadcastAnnotationLines]);
 
+  // Receive drawing events from the floating desktop toolbar.
+  useEffect(() => {
+    const socket = new WebSocket("ws://127.0.0.1:8000/ws/teacher-overlay");
+    teacherOverlaySocketRef.current = socket;
+
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({ role: "dashboard" }));
+      console.log("Desktop annotation bridge connected");
+    });
+
+    socket.addEventListener("message", (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+
+      if (message.type === "DRAW_EVENT") {
+        const point = { x: message.x, y: message.y };
+        if (message.action === "start") {
+          const line = { color: message.color || "#ff3333", points: [point] };
+          currentBroadcastLineRef.current = line;
+          setCurrentBroadcastLine(line);
+        } else if (message.action === "move") {
+          const active = currentBroadcastLineRef.current;
+          if (!active) return;
+          const updated = { ...active, points: [...active.points, point] };
+          currentBroadcastLineRef.current = updated;
+          setCurrentBroadcastLine(updated);
+        } else if (message.action === "end") {
+          const active = currentBroadcastLineRef.current;
+          if (active) {
+            const completed = { ...active, points: [...active.points, point] };
+            currentBroadcastLineRef.current = null;
+            setCurrentBroadcastLine(null);
+            if (completed.points.length > 1) {
+              setBroadcastAnnotationLines((previous) => [...previous, completed]);
+            }
+          }
+        }
+      } else if (message.type === "CLEAR_ANNOTATIONS") {
+        currentBroadcastLineRef.current = null;
+        setCurrentBroadcastLine(null);
+        setBroadcastAnnotationLines([]);
+      }
+    });
+
+    socket.addEventListener("close", () => {
+      if (teacherOverlaySocketRef.current === socket) teacherOverlaySocketRef.current = null;
+    });
+
+    return () => {
+      socket.close();
+      if (teacherOverlaySocketRef.current === socket) teacherOverlaySocketRef.current = null;
+    };
+  }, []);
+
+  const sendOverlayCommand = (message) => {
+    const socket = teacherOverlaySocketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+    } else {
+      console.warn("Desktop annotation bridge is not connected yet.");
+    }
+  };
   const fetchComputers = async () => {
     try {
       const response = await fetch(`${API_URL}/computers`);
@@ -90,7 +154,9 @@ function App() {
 
     teacherStreamRef.current = stream;
     setIsBroadcasting(true);
-
+    setBroadcastAnnotationLines([]);
+    currentBroadcastLineRef.current = null;
+    setCurrentBroadcastLine(null);
     notifyStudentsBroadcast("START_TEACHER_BROADCAST");
 
     const video = document.createElement("video");
@@ -100,18 +166,44 @@ function App() {
 
     await video.play();
 
+    // Use the exact dimensions returned by the browser for the chosen
+    // capture source: Chrome tab, application window, or entire monitor.
+    const track = stream.getVideoTracks()[0];
+    const trackSettings = track.getSettings();
+    const captureWidth = video.videoWidth;
+    const captureHeight = video.videoHeight;
+
+    if (!captureWidth || !captureHeight) {
+      throw new Error("The shared screen has no video dimensions yet.");
+    }
+
+    setBroadcastFrameSize({ width: captureWidth, height: captureHeight });
+    sendOverlayCommand({
+      type: "BROADCAST_STATE",
+      broadcasting: true,
+      displaySurface: trackSettings.displaySurface || "unknown",
+      width: captureWidth,
+      height: captureHeight,
+    });
+
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
 
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = captureWidth;
+    canvas.height = captureHeight;
 
     broadcastCanvasRef.current = canvas;
 
     const sendFrame = async () => {
       if (!video.videoWidth || !video.videoHeight) return;
 
-      // Draw the captured teacher screen.
+      // Keep the source frame at its native aspect ratio and resolution.
+      // This prevents annotation coordinates from being stretched.
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        setBroadcastFrameSize({ width: video.videoWidth, height: video.videoHeight });
+      }
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -193,6 +285,7 @@ function App() {
     }
 
     setIsBroadcasting(false);
+    sendOverlayCommand({ type: "BROADCAST_STATE", broadcasting: false, displaySurface: "unknown" });
     notifyStudentsBroadcast("STOP_TEACHER_BROADCAST");
 
     fetch(`${API_URL}/teacher/broadcast/frame`, {
@@ -548,37 +641,20 @@ const clearBroadcastAnnotations = () => {
   {isBroadcasting && (
     <div className="broadcast-annotation-panel">
       <div className="annotation-toolbar">
-        <button
-          className={broadcastPenEnabled ? "pen-active" : ""}
-          onClick={() =>
-            setBroadcastPenEnabled((previous) => !previous)
-          }
-        >
-          {broadcastPenEnabled ? "Disable Pen" : "Enable Pen"}
-        </button>
-
-        <label>
-          Pen color
-          <input
-            type="color"
-            value={broadcastPenColor}
-            onChange={(event) =>
-              setBroadcastPenColor(event.target.value)
-            }
-          />
-        </label>
-
-        <button onClick={clearBroadcastAnnotations}>
-          Clear Annotations
-        </button>
+        <span>Use the floating LabSphere Teacher Tools toolbar to annotate directly on the shared application window.</span>
+        <button onClick={clearBroadcastAnnotations}>Clear Annotations</button>
       </div>
 
-      <div className="broadcast-annotation-screen">
+      <div
+        className="broadcast-annotation-screen"
+        style={{ aspectRatio: `${broadcastFrameSize.width} / ${broadcastFrameSize.height}` }}
+      >
         {broadcastPreviewFrame ? (
           <img
             src={broadcastPreviewFrame}
             alt="Teacher broadcast preview"
             draggable={false}
+            style={{ pointerEvents: "none", userSelect: "none" }}
           />
         ) : (
           <div className="expanded-screen-placeholder">
@@ -587,15 +663,10 @@ const clearBroadcastAnnotations = () => {
         )}
 
         <svg
-          className={`annotation-canvas ${
-            broadcastPenEnabled ? "drawing-enabled" : ""
-          }`}
+          className="annotation-canvas"
+          style={{ pointerEvents: "none" }}
           viewBox="0 0 1 1"
           preserveAspectRatio="none"
-          onPointerDown={startBroadcastAnnotation}
-          onPointerMove={continueBroadcastAnnotation}
-          onPointerUp={finishBroadcastAnnotation}
-          onPointerCancel={finishBroadcastAnnotation}
         >
           {[
             ...broadcastAnnotationLines,
@@ -756,125 +827,56 @@ const clearBroadcastAnnotations = () => {
         </div>
       )}
 
+      
+      
       {expandedComputer && (
         <div
-          className="lab-modal-backdrop screen-modal-backdrop"
+          className="screen-focus-backdrop"
           onClick={() => setExpandedComputer(null)}
         >
           <section
-            className="lab-modal screen-modal"
+            className="screen-focus-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={`${expandedComputer} screen`}
+            aria-label={`${expandedComputer} enlarged screen`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="modal-heading">
-              <div>
-                <h2>{expandedComputer} · Live Screen</h2>
-                <p>Live screen preview</p>
-              </div>
-              <button
-                className="modal-close-button"
-                onClick={() => setExpandedComputer(null)}
-                aria-label="Close screen"
-              >
-                ×
-              </button>
+            
+            <div className="screen-viewing-indicator">
+              <span>VIEWING {expandedComputer}</span>
+              <span className="screen-viewing-dot" />
             </div>
 
-            
-<div className="expanded-screen-viewer">
-  <div className="annotation-toolbar">
-    <button
-      onClick={() => setAnnotationMode((previous) => !previous)}
-    >
-      {annotationMode ? "Disable Pen" : "Enable Pen"}
-    </button>
+            <button
+              className="screen-focus-close"
+              onClick={() => setExpandedComputer(null)}
+              aria-label="Close enlarged screen"
+              title="Close"
+            >
+              ×
+            </button>
 
-    <label>
-      Pen color
-      <input
-        type="color"
-        value={annotationColor}
-        onChange={(event) => setAnnotationColor(event.target.value)}
-      />
-    </label>
-
-    <button onClick={() => clearAnnotations(expandedComputer)}>
-      Clear Annotations
-    </button>
-  </div>
-
-  <div className="annotation-screen">
-    {screenFrames[expandedComputer] ? (
-      <img
-        src={screenFrames[expandedComputer]}
-        alt={`Enlarged screen of ${expandedComputer}`}
-        draggable={false}
-      />
-    ) : (
-      <div className="expanded-screen-placeholder">
-        <span className="preview-monitor-icon">▣</span>
-        <p>
-          {computers.find((pc) => pc.pc_id === expandedComputer)
-            ?.status === "Online"
-            ? "Waiting for the first screen frame..."
-            : "This computer is offline."}
-        </p>
-      </div>
-    )}
-
-    <svg
-      ref={annotationCanvasRef}
-      className={`annotation-canvas ${annotationMode ? "drawing-enabled" : ""}`}
-      viewBox="0 0 1 1"
-      preserveAspectRatio="none"
-      onPointerDown={(event) => {
-  console.log("Pen clicked", {
-    annotationMode,
-    screen: expandedComputer,
-  });
-
-  if (!annotationMode) return;
-
-  event.preventDefault();
-  event.currentTarget.setPointerCapture(event.pointerId);
-  startAnnotation(event, expandedComputer);
-}}
-      onPointerMove={(event) => {
-  console.log("Pointer moving", {
-    drawingEnabled: annotationMode,
-    hasActiveLine: Boolean(currentLineRef.current),
-  });
-  continueAnnotation(event);
-}}
-      onPointerUp={finishAnnotation}
-      onPointerCancel={finishAnnotation}
-    >
-      {(annotationLines[expandedComputer] || [])
-        .concat(
-          currentLine?.screenId === expandedComputer ? [currentLine] : []
-        )
-        .map((line, index) => (
-          <polyline
-            key={index}
-            points={line.points
-              .map((point) => `${point.x},${point.y}`)
-              .join(" ")}
-            fill="none"
-            stroke={line.color}
-            strokeWidth="0.004"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
-    </svg>
-  </div>
-</div>
-
+            {screenFrames[expandedComputer] ? (
+              <img
+                className="screen-focus-image"
+                src={screenFrames[expandedComputer]}
+                alt={`Live screen of ${expandedComputer}`}
+                draggable={false}
+              />
+            ) : (
+              <div className="screen-focus-placeholder">
+                {computers.find(
+                  (pc) => pc.pc_id === expandedComputer
+                )?.status === "Online"
+                  ? "Waiting for screen frame..."
+                  : "This computer is offline."}
+              </div>
+            )}
           </section>
         </div>
       )}
+
+
     </div>
   );
 }
