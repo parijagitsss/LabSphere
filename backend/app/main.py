@@ -194,13 +194,26 @@ def get_session_assignments(session_id: str):
 @app.post("/sessions")
 def create_session(session: SessionCreate):
 
-    # Prevent multiple active sessions
-    for existing_session in manager.sessions.values():
-        if existing_session["status"] == "Active":
-            return {
-                "status": "active_session_exists",
-                "session_id": existing_session["session_id"]
-            }
+    # Check MongoDB for an existing active session
+    existing_session = sessions_collection.find_one(
+        {"status": "Active"},
+        {"_id": 0}
+    )
+
+    if existing_session:
+
+        # Restore the active session in backend memory
+        created_at = existing_session.get("created_at")
+
+        if isinstance(created_at, datetime):
+            existing_session["created_at"] = created_at.isoformat()
+
+        manager.sessions[existing_session["session_id"]] = existing_session
+
+        return {
+            "status": "active_session_exists",
+            "session_id": existing_session["session_id"]
+        }
 
     session_id = f"SESSION-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -215,10 +228,10 @@ def create_session(session: SessionCreate):
         "created_at": created_at.isoformat()
     }
 
-    # Keep session available for live backend operations
+    # Store in memory
     manager.sessions[session_id] = session_data
 
-    # Permanently save session in MongoDB
+    # Store permanently in MongoDB
     mongo_session = {
         **session_data,
         "created_at": created_at
@@ -233,6 +246,44 @@ def get_sessions():
     sessions = list(sessions_collection.find({}, {"_id": 0}))
 
     return sessions
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+
+    session = sessions_collection.find_one({
+        "session_id": session_id
+    })
+
+    if not session:
+        return {
+            "status": "session_not_found",
+            "session_id": session_id
+        }
+
+    if session["status"] == "Active":
+        return {
+            "status": "active_session_cannot_be_deleted",
+            "message": "Please end the session before deleting it."
+        }
+
+    # Delete associated activity records
+    activity_result = activity_collection.delete_many({
+        "session_id": session_id
+    })
+
+    # Delete the session itself
+    sessions_collection.delete_one({
+        "session_id": session_id
+    })
+
+    # Remove from backend memory
+    manager.sessions.pop(session_id, None)
+
+    return {
+        "status": "session_deleted",
+        "session_id": session_id,
+        "deleted_activity_records": activity_result.deleted_count
+    }
+
 
 @app.get("/sessions/{session_id}/activity")
 def get_session_activity(session_id: str):
@@ -264,34 +315,67 @@ def get_session_activity(session_id: str):
 
 @app.get("/sessions/active")
 def get_active_session():
-    for session in manager.sessions.values():
-        if session["status"] == "Active":
-            return session
 
-    return {
-        "status": "no_active_session"
-    }
+    session = sessions_collection.find_one(
+        {"status": "Active"},
+        {"_id": 0}
+    )
+
+    if not session:
+        return {
+            "status": "no_active_session"
+        }
+
+    # Restore session into memory
+    created_at = session.get("created_at")
+
+    if isinstance(created_at, datetime):
+        session["created_at"] = created_at.isoformat()
+
+    manager.sessions[session["session_id"]] = session
+
+    return session
+
 
 @app.post("/sessions/{session_id}/end")
 def end_session(session_id: str):
-    if session_id not in manager.sessions:
+
+    # Find session in MongoDB
+    session = sessions_collection.find_one({
+        "session_id": session_id
+    })
+
+    if not session:
         return {
             "status": "session_not_found",
             "session_id": session_id
         }
 
-    manager.sessions[session_id]["status"] = "Ended"
-    manager.sessions[session_id]["ended_at"] = datetime.now().isoformat()
-        # Update the session in MongoDB
+    if session["status"] == "Ended":
+        return {
+            "status": "session_already_ended",
+            "session_id": session_id
+        }
+
+    ended_at = datetime.now()
+
+    # Update MongoDB
     sessions_collection.update_one(
         {"session_id": session_id},
         {
             "$set": {
                 "status": "Ended",
-                "ended_at": datetime.now()
+                "ended_at": ended_at
             }
         }
     )
+
+    # Update in-memory session if it exists
+    if session_id in manager.sessions:
+        manager.sessions[session_id]["status"] = "Ended"
+        manager.sessions[session_id]["ended_at"] = ended_at.isoformat()
+
+    # Clear associated assignments
     ended_assignments = []
 
     for assignment_id, assignment in list(manager.assignments.items()):
@@ -306,9 +390,10 @@ def end_session(session_id: str):
 
     return {
         "status": "session_ended",
-        "session": manager.sessions[session_id],
+        "session_id": session_id,
         "cleared_assignments": ended_assignments
     }
+
 
 @app.get("/health")
 def health_check():

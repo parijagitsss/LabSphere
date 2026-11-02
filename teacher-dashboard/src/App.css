@@ -374,3 +374,459 @@ a { color: inherit; }
 .topbar { min-height: 94px; }
 .topbar-heading h1 { margin: 0; color: var(--lab-ink); font: 800 25px 'Manrope', sans-serif; letter-spacing: -0.7px; }
 .topbar-heading p { margin: 5px 0 0; color: var(--lab-muted); font-size: 12px; font-weight: 500; }
+
+/* Activity Logs Navigation */
+
+.page-navigation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px clamp(22px, 4vw, 58px) 0;
+  background: #ffffff;
+  border-bottom: 1px solid var(--lab-border);
+}
+
+.page-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 18px;
+  border: 1px solid transparent;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--lab-muted);
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.page-nav-button:hover {
+  background: var(--lab-purple-pale);
+  color: var(--lab-purple-dark);
+}
+
+.page-nav-button.active {
+  border-color: var(--lab-border);
+  border-bottom: 2px solid var(--lab-purple);
+  background: var(--lab-purple-soft);
+  color: var(--lab-purple-dark);
+}
+
+/* Activity Logs Page */
+
+.activity-logs-section {
+  padding: 28px clamp(22px, 4vw, 58px);
+}
+
+.logs-placeholder {
+  margin-top: 22px;
+  padding: 32px;
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-border);
+  border-radius: 16px;
+  text-align: center;
+}
+
+.logs-placeholder h3 {
+  color: var(--lab-ink);
+  margin-bottom: 8px;
+}
+
+.logs-placeholder p {
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+
+/* =================================
+   ACTIVITY LOGS - MIDNIGHT LAVENDER
+================================= */
+
+.activity-logs-section {
+  padding: 32px clamp(22px, 4vw, 58px);
+  max-width: 1250px;
+  margin: 0 auto;
+}
+
+.activity-logs-section .section-header {
+  margin-bottom: 28px;
+}
+
+/* Session history */
+
+.session-history {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px;
+  background: var(--lab-surface);
+  border: 1px solid var(--lab-border);
+  border-radius: 14px;
+  box-shadow: 0 3px 12px rgba(36, 33, 61, 0.04);
+  transition: 0.2s ease;
+}
+
+.session-card:hover {
+  border-color: #c9c0f4;
+  box-shadow: 0 6px 18px rgba(36, 33, 61, 0.07);
+}
+
+.session-card h3 {
+  margin: 0 0 7px;
+  color: var(--lab-ink);
+  font-size: 17px;
+}
+
+.session-card p {
+  margin: 0 0 7px;
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+.session-card small {
+  color: var(--lab-muted);
+  font-size: 12px;
+}
+
+/* Session status */
+
+.session-status {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.session-status.active {
+  background: #e5f7ef;
+  color: #13845c;
+}
+
+.session-status.ended {
+  background: #f0eef5;
+  color: #77728a;
+}
+
+/* General Activity Logs buttons */
+
+.session-card button,
+.back-button,
+.log-pc-button {
+  border: none;
+  border-radius: 9px;
+  padding: 10px 16px;
+  background: var(--lab-purple);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.session-card button:hover,
+.back-button:hover {
+  background: var(--lab-purple-dark);
+  transform: translateY(-1px);
+}
+
+.back-button {
+  margin-bottom: 22px;
+}
+
+/* Session activity */
+
+.session-history > h3 {
+  color: var(--lab-ink);
+  font-size: 21px;
+  margin-bottom: 20px;
+}
+
+.log-pc-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0 28px;
+}
+
+.log-pc-button {
+  background: white;
+  color: var(--lab-purple-dark);
+  border: 1px solid var(--lab-border);
+  padding: 12px 20px;
+}
+
+.log-pc-button:hover,
+.log-pc-button.selected {
+  background: var(--lab-purple-soft);
+  border-color: var(--lab-purple);
+  color: var(--lab-purple-dark);
+}
+
+/* Activity timeline */
+
+.activity-timeline {
+  margin-top: 28px;
+}
+
+.activity-timeline h3 {
+  color: var(--lab-ink);
+  font-size: 19px;
+  margin-bottom: 22px;
+}
+
+.activity-log-card {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  background: white;
+  border: 1px solid var(--lab-border);
+  border-left: 4px solid var(--lab-purple);
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(36, 33, 61, 0.04);
+}
+
+.activity-log-time {
+  color: var(--lab-purple-dark);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.activity-log-card h4 {
+  color: var(--lab-ink);
+  font-size: 15px;
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+}
+
+.activity-log-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.activity-log-metrics span {
+  padding: 7px 11px;
+  background: var(--lab-purple-pale);
+  border-radius: 7px;
+  color: var(--lab-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Empty state */
+
+.logs-placeholder {
+  margin-top: 22px;
+  padding: 36px;
+  background: white;
+  border: 1px solid var(--lab-border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.logs-placeholder h3 {
+  color: var(--lab-ink);
+  margin-bottom: 8px;
+}
+
+.logs-placeholder p {
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+/* Responsive layout */
+
+@media (max-width: 650px) {
+  .session-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .session-card button {
+    width: 100%;
+  }
+
+  .activity-log-metrics {
+    flex-direction: column;
+  }
+}
+/* Activity Logs heading alignment */
+.activity-logs-section > .section-header {
+  justify-content: center;
+  text-align: center;
+}
+
+/* Centre session status vertically */
+.session-card {
+  align-items: center;
+}
+
+.session-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
+/* Lab Session Controls */
+
+.session-control-section {
+  margin: 0 0 28px;
+  padding: 24px;
+  background: white;
+  border: 1px solid var(--lab-border);
+  border-radius: 16px;
+  box-shadow: 0 3px 12px rgba(36, 33, 61, 0.04);
+}
+
+.session-control-section .section-header {
+  margin-bottom: 20px;
+}
+
+.start-session-panel,
+.active-session-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.session-form {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+}
+
+.session-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--lab-border);
+  border-radius: 9px;
+  background: var(--lab-purple-pale);
+  color: var(--lab-ink);
+  font-size: 13px;
+  outline: none;
+}
+
+.session-form input:focus {
+  border-color: var(--lab-purple);
+}
+
+.start-session-button,
+.stop-session-button {
+  padding: 13px 20px;
+  border: none;
+  border-radius: 9px;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.start-session-button {
+  background: var(--lab-green);
+}
+
+.stop-session-button {
+  background: var(--lab-red);
+}
+
+.start-session-button:disabled,
+.stop-session-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.active-session-info h3 {
+  margin: 10px 0 5px;
+  color: var(--lab-ink);
+}
+
+.active-session-info p {
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+.session-live-indicator {
+  color: var(--lab-green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 750px) {
+  .start-session-panel,
+  .active-session-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-form {
+    flex-direction: column;
+  }
+}
+
+/* Session Card Actions */
+
+.session-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-card .view-activity-button {
+  background: var(--lab-purple);
+}
+
+.session-card .delete-session-button {
+  background: #fff0f1;
+  color: #d94b61;
+  border: 1px solid #f4d4d9;
+}
+
+.session-card .delete-session-button:hover {
+  background: #d94b61;
+  color: white;
+}
+
+.session-card .delete-session-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 650px) {
+  .session-card-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .session-card-actions button {
+    width: 100%;
+  }
+}
+
+.session-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  gap: 12px;
+}
+
+@media (max-width: 750px) {
+  .session-form {
+    grid-template-columns: 1fr;
+  }
+}

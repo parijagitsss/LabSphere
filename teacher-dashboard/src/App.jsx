@@ -17,8 +17,23 @@ function App() {
   const annotationCanvasRef = useRef(null);
   const currentLineRef = useRef(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
+  // Activity Logs
+  const [activePage, setActivePage] = useState("dashboard");
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [sessionActivities, setSessionActivities] = useState([]);
+  const [selectedLogPC, setSelectedLogPC] = useState(null);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
   const teacherStreamRef = useRef(null);
   const broadcastIntervalRef = useRef(null);
+  // Lab Session Controls
+  const [activeSession, setActiveSession] = useState(null);
+  const [sessionForm, setSessionForm] = useState({
+  subject: "",
+  batch: ""
+});
+  const [sessionActionLoading, setSessionActionLoading] = useState(false);
   // Broadcast annotation state
   const fullscreenExitHandlerRef = useRef(null);
   const [broadcastPenEnabled, setBroadcastPenEnabled] = useState(false);
@@ -107,6 +122,196 @@ function App() {
       setLoading(false);
     }
   };
+
+  const fetchSessions = async () => {
+  try {
+    setSessionsLoading(true);
+
+    const response = await fetch(`${API_URL}/sessions`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch sessions");
+    }
+
+    const data = await response.json();
+    setSessions(data);
+
+  } catch (error) {
+    console.error("Failed to fetch sessions:", error);
+  } finally {
+    setSessionsLoading(false);
+  }
+};
+
+const fetchSessionActivities = async (sessionId) => {
+  try {
+    setActivitiesLoading(true);
+
+    const response = await fetch(
+      `${API_URL}/sessions/${sessionId}/activity`
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch session activities");
+    }
+
+    const data = await response.json();
+
+    console.log("Fetched activity records:", data.activities);
+
+    setSelectedSession(sessionId);
+    setSelectedLogPC(null);
+    setSessionActivities(data.activities || []);
+
+  } catch (error) {
+    console.error("Failed to fetch session activities:", error);
+  } finally {
+    setActivitiesLoading(false);
+  }
+};
+
+
+const fetchActiveSession = async () => {
+  try {
+    const response = await fetch(`${API_URL}/sessions/active`);
+    const data = await response.json();
+
+    if (data.status === "no_active_session") {
+      setActiveSession(null);
+    } else {
+      setActiveSession(data);
+    }
+  } catch (error) {
+    console.error("Failed to fetch active session:", error);
+  }
+};
+useEffect(() => {
+  fetchActiveSession();
+}, []);
+
+const startSession = async () => {
+  if (!sessionForm.subject.trim() ||
+    !sessionForm.batch.trim()) {
+    alert("Please fill in all session details.");
+    return;
+  }
+
+  try {
+    setSessionActionLoading(true);
+
+    const response = await fetch(`${API_URL}/sessions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        subject: sessionForm.subject,
+        batch: sessionForm.batch,
+        title: `${sessionForm.subject} - ${sessionForm.batch}`
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === "active_session_exists") {
+      alert("A lab session is already active.");
+      await fetchActiveSession();
+      return;
+    }
+
+    if (!response.ok || !data.session_id) {
+      throw new Error(data.detail || "Failed to start session");
+    }
+
+    setActiveSession(data);
+    setSessionForm({
+      subject: "",
+      batch: ""
+    });
+
+    await fetchSessions();
+    alert("Lab session started successfully!");
+  } catch (error) {
+    console.error("Start session error:", error);
+    alert("Could not start the session.");
+  } finally {
+    setSessionActionLoading(false);
+  }
+};
+
+const stopSession = async () => {
+  if (!activeSession) return;
+
+  const confirmed = window.confirm(
+    "Are you sure you want to end this lab session?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    setSessionActionLoading(true);
+
+    const response = await fetch(
+      `${API_URL}/sessions/${activeSession.session_id}/end`,
+      { method: "POST" }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.status !== "session_ended") {
+      throw new Error("Failed to end session");
+    }
+
+    setActiveSession(null);
+    await fetchSessions();
+
+    alert("Lab session ended successfully!");
+  } catch (error) {
+    console.error("Stop session error:", error);
+    alert("Could not stop the session.");
+  } finally {
+    setSessionActionLoading(false);
+  }
+};
+
+
+const deleteSession = async (sessionId) => {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete this session? All associated activity records will also be permanently deleted."
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(
+      `${API_URL}/sessions/${sessionId}`,
+      { method: "DELETE" }
+    );
+
+    const data = await response.json();
+
+    if (data.status === "active_session_cannot_be_deleted") {
+      alert("Please stop the session before deleting it.");
+      return;
+    }
+
+    if (!response.ok || data.status !== "session_deleted") {
+      throw new Error("Failed to delete session");
+    }
+
+    await fetchSessions();
+
+    alert(
+      `Session deleted successfully. ${data.deleted_activity_records} activity records removed.`
+    );
+
+  } catch (error) {
+    console.error("Delete session error:", error);
+    alert("Could not delete the session.");
+  }
+};
+
+
 
   const sendCommand = async (pcId, command, data = {}) => {
     const response = await fetch(`${API_URL}/computers/${pcId}/command`, {
@@ -628,10 +833,34 @@ const clearBroadcastAnnotations = () => {
           <span className="status-dot" />
           Server Online
         </div>
-      </header>
+            </header>
 
-        <main className="dashboard">
-        <section className="stats" id="overview">
+      <nav className="page-navigation">
+        <button
+          className={activePage === "dashboard" ? "page-nav-button active" : "page-nav-button"}
+          onClick={() => setActivePage("dashboard")}
+        >
+          <span>▣</span>
+          Live Lab
+        </button>
+
+        <button
+          className={activePage === "logs" ? "page-nav-button active" : "page-nav-button"}
+          onClick={() => {
+            setActivePage("logs");
+            fetchSessions();
+            setSelectedSession(null);
+          }}
+        >
+          <span>◷</span>
+          Activity Logs
+        </button>
+      </nav>
+
+      <main className="dashboard">
+        {activePage === "dashboard" ? (
+          <>
+            <section className="stats" id="overview">
           <div className="stat-card">
             <span>Total Computers</span>
             <strong>{computers.length}</strong>
@@ -647,6 +876,68 @@ const clearBroadcastAnnotations = () => {
         </section>
 
         
+
+<section className="session-control-section">
+  <div className="section-header">
+    <div>
+      <h2>Lab Session Control</h2>
+      <p>Manage your current laboratory session</p>
+    </div>
+  </div>
+
+  {activeSession ? (
+    <div className="active-session-panel">
+      <div className="active-session-info">
+        <span className="session-live-indicator">
+          ● Session in Progress
+        </span>
+
+        <h3>{activeSession.title}</h3>
+
+        <p>
+          {activeSession.subject} · {activeSession.batch}
+        </p>
+      </div>
+
+      <button
+        className="stop-session-button"
+        onClick={stopSession}
+        disabled={sessionActionLoading}
+      >
+        {sessionActionLoading ? "Stopping..." : "■ Stop Session"}
+      </button>
+    </div>
+  ) : (
+    <div className="start-session-panel">
+      <div className="session-form">
+        <input
+          type="text"
+          placeholder="Subject"
+          value={sessionForm.subject}
+          onChange={(e) =>
+            setSessionForm({ ...sessionForm, subject: e.target.value })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Batch Number"
+          value={sessionForm.batch}
+          onChange={(e) =>
+            setSessionForm({ ...sessionForm, batch: e.target.value })
+          }
+        />
+      </div>
+
+      <button
+        className="start-session-button"
+        onClick={startSession}
+        disabled={sessionActionLoading}
+      >
+        {sessionActionLoading ? "Starting..." : "▶ Start Session"}
+      </button>
+    </div>
+  )}
+</section>
 <section className="computer-section" id="computers">
   <div className="section-header">
     <div>
@@ -761,7 +1052,136 @@ const clearBroadcastAnnotations = () => {
   )}
 </section>
 
-      </main>
+        </>
+) : (
+  <section className="activity-logs-section">
+    <div className="section-header">
+      <div>
+        <h2>Activity Logs</h2>
+        <p>View activity recorded during previous lab sessions.</p>
+      </div>
+    </div>
+
+    <div className="session-history">
+
+  {!selectedSession ? (
+    <>
+      {sessionsLoading ? (
+        <p>Loading sessions...</p>
+      ) : sessions.length === 0 ? (
+        <div className="logs-placeholder">
+          <h3>No sessions recorded yet</h3>
+          <p>Your lab sessions will appear here.</p>
+        </div>
+      ) : (
+        sessions.map((session) => (
+          <div className="session-card" key={session.session_id}>
+            <div>
+              <h3>{session.title || "Lab Session"}</h3>
+              <p>
+                {session.subject || "No subject"} · {session.batch || "No batch"}
+              </p>
+              <small>
+                {session.created_at
+                  ? new Date(session.created_at).toLocaleString()
+                  : "Date unavailable"}
+              </small>
+            </div>
+
+            <span className={`session-status ${session.status === "Active" ? "active" : "ended"}`}>
+              {session.status}
+            </span>
+
+            <div className="session-card-actions">
+  <button
+    className="view-activity-button"
+    onClick={() => fetchSessionActivities(session.session_id)}
+  >
+    View Activity
+  </button>
+
+  <button
+    className="delete-session-button"
+    onClick={() => deleteSession(session.session_id)}
+    disabled={session.status === "Active"}
+    title={
+      session.status === "Active"
+        ? "Stop the session before deleting it"
+        : "Delete this session"
+    }
+  >
+    🗑 Delete
+  </button>
+</div>
+          </div>
+        ))
+      )}
+    </>
+  ) : (
+    <>
+      <button
+        className="back-button"
+        onClick={() => {
+          setSelectedSession(null);
+          setSelectedLogPC(null);
+        }}
+      >
+        ← Back to Sessions
+      </button>
+
+      <h3>Session Activity</h3>
+
+      {activitiesLoading ? (
+        <p>Loading activity records...</p>
+      ) : sessionActivities.length === 0 ? (
+        <p>No activity records found for this session.</p>
+      ) : (
+        <>
+          <div className="log-pc-list">
+            {[...new Set(sessionActivities.map((record) => record.pc_id))].map((pcId) => (
+              <button
+                key={pcId}
+                className={selectedLogPC === pcId ? "log-pc-button selected" : "log-pc-button"}
+                onClick={() => setSelectedLogPC(pcId)}
+              >
+                {pcId}
+              </button>
+            ))}
+          </div>
+
+          {selectedLogPC && (
+            <div className="activity-timeline">
+              <h3>Activity Timeline: {selectedLogPC}</h3>
+
+              {sessionActivities
+                .filter((record) => record.pc_id === selectedLogPC)
+                .map((record, index) => (
+                  <div className="activity-log-card" key={index}>
+                    <div className="activity-log-time">
+                      {record.timestamp
+                        ? new Date(record.timestamp).toLocaleString()
+                        : "Time unavailable"}
+                    </div>
+
+                    <h4>{record.active_window || "Unknown Application"}</h4>
+
+                    <div className="activity-log-metrics">
+                      <span>CPU: {record.cpu_percent ?? "N/A"}%</span>
+                      <span>Memory: {record.memory_percent ?? "N/A"}%</span>
+                      <span>Idle: {record.idle_seconds ?? "N/A"} sec</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  )}
+</div>
+  </section>
+)}
+</main>
 
       {selectedComputer && (
         <div
