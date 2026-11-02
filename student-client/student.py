@@ -9,11 +9,12 @@ import win32gui
 import base64
 import io
 import mss
-from PIL import Image
+from PIL import Image, ImageTk, ImageOps
 import uuid
 from pathlib import Path
 import tkinter as tk
 from PIL import ImageTk
+
 
 
 class TeacherBroadcastViewer:
@@ -25,15 +26,39 @@ class TeacherBroadcastViewer:
     def show_frame(self, frame_bytes):
         try:
             image = Image.open(io.BytesIO(frame_bytes)).convert("RGB")
-            image.thumbnail((1280, 720))
 
             if self.root is None or not self.root.winfo_exists():
                 self.root = tk.Tk()
                 self.root.title("LabSphere - Teacher Broadcast")
-                self.root.geometry("1000x600")
 
-                self.label = tk.Label(self.root)
+                # Make the broadcast occupy the entire student monitor.
+                self.root.configure(bg="black")
+                self.root.attributes("-fullscreen", True)
+                self.root.attributes("-topmost", True)
+                # Testing shortcut: ESC closes the fullscreen viewer.
+                self.root.bind("<Escape>", self.close)
+
+                # Prevent closing the broadcast through the window controls.
+                self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+
+                self.label = tk.Label(
+                    self.root,
+                    bg="black",
+                    borderwidth=0
+                )
                 self.label.pack(expand=True, fill="both")
+
+                self.root.update_idletasks()
+
+            # Get the actual student monitor dimensions.
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+
+            # Fit the teacher's screen without stretching it.
+            image = ImageOps.contain(
+                image,
+                (screen_width, screen_height)
+            )
 
             self.photo = ImageTk.PhotoImage(image)
             self.label.configure(image=self.photo)
@@ -44,7 +69,7 @@ class TeacherBroadcastViewer:
         except Exception as error:
             print("Teacher broadcast display error:", error)
 
-    def close(self):
+    def close(self, event=None):
         if self.root is not None:
             try:
                 self.root.destroy()

@@ -20,6 +20,7 @@ function App() {
   const teacherStreamRef = useRef(null);
   const broadcastIntervalRef = useRef(null);
   // Broadcast annotation state
+  const fullscreenExitHandlerRef = useRef(null);
   const [broadcastPenEnabled, setBroadcastPenEnabled] = useState(false);
   const [broadcastPenColor, setBroadcastPenColor] = useState("#ff3333");
   const [broadcastAnnotationLines, setBroadcastAnnotationLines] = useState([]);
@@ -141,6 +142,15 @@ function App() {
   
   const startTeacherBroadcast = async () => {
   try {
+    // Enter LabSphere fullscreen when Start Broadcast is clicked.
+    if (!document.fullscreenElement) {
+      const fullscreenPromise = document.documentElement.requestFullscreen();
+
+      fullscreenPromise.catch((error) => {
+        console.warn("Could not enter fullscreen:", error);
+      });
+    }
+
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: {
         frameRate: 5,
@@ -152,6 +162,17 @@ function App() {
 
     teacherStreamRef.current = stream;
     setIsBroadcasting(true);
+    fullscreenExitHandlerRef.current = () => {
+  if (!document.fullscreenElement && teacherStreamRef.current) {
+    stopTeacherBroadcast();
+  }
+};
+
+document.addEventListener(
+  "fullscreenchange",
+  fullscreenExitHandlerRef.current
+);
+
     setBroadcastAnnotationLines([]);
     currentBroadcastLineRef.current = null;
     setCurrentBroadcastLine(null);
@@ -271,6 +292,19 @@ function App() {
 };
 
   const stopTeacherBroadcast = () => {
+    if (fullscreenExitHandlerRef.current) {
+  document.removeEventListener(
+    "fullscreenchange",
+    fullscreenExitHandlerRef.current
+  );
+  fullscreenExitHandlerRef.current = null;
+}
+      // Exit LabSphere fullscreen when broadcasting stops.
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch((error) => {
+      console.warn("Could not exit fullscreen:", error);
+    });
+  }
     if (broadcastIntervalRef.current) {
       clearInterval(broadcastIntervalRef.current);
       broadcastIntervalRef.current = null;
