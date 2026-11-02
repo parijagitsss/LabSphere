@@ -10,7 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.app.websocket.manager import ConnectionManager
-
+from backend.app.database import (
+    sessions_collection,
+    activity_collection
+)
 
 app = FastAPI()
 
@@ -190,29 +193,74 @@ def get_session_assignments(session_id: str):
 
 @app.post("/sessions")
 def create_session(session: SessionCreate):
-        for existing_session in manager.sessions.values():
-            if existing_session["status"] == "Active":
-                return {
-                    "status": "active_session_exists",
-                    "session_id": existing_session["session_id"]
-                }
-        session_number = len(manager.sessions) + 1
-        session_id = f"SESSION-{len(manager.sessions) + 1:03d}"
 
-        manager.sessions[session_id] = {
+    # Prevent multiple active sessions
+    for existing_session in manager.sessions.values():
+        if existing_session["status"] == "Active":
+            return {
+                "status": "active_session_exists",
+                "session_id": existing_session["session_id"]
+            }
+
+    session_id = f"SESSION-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    created_at = datetime.now()
+
+    session_data = {
         "session_id": session_id,
         "subject": session.subject,
         "batch": session.batch,
         "title": session.title,
         "status": "Active",
-        "created_at": datetime.now().isoformat()
+        "created_at": created_at.isoformat()
     }
 
-        return manager.sessions[session_id]
+    # Keep session available for live backend operations
+    manager.sessions[session_id] = session_data
+
+    # Permanently save session in MongoDB
+    mongo_session = {
+        **session_data,
+        "created_at": created_at
+    }
+
+    sessions_collection.insert_one(mongo_session)
+
+    return session_data
 
 @app.get("/sessions")
 def get_sessions():
-    return manager.sessions
+    sessions = list(sessions_collection.find({}, {"_id": 0}))
+
+    return sessions
+
+@app.get("/sessions/{session_id}/activity")
+def get_session_activity(session_id: str):
+
+    # Check whether the session exists in MongoDB
+    session = sessions_collection.find_one(
+        {"session_id": session_id}
+    )
+
+    if not session:
+        return {
+            "status": "session_not_found",
+            "session_id": session_id
+        }
+
+    # Retrieve all activity records for this session
+    activities = list(
+        activity_collection.find(
+            {"session_id": session_id},
+            {"_id": 0}
+        ).sort("timestamp", 1)
+    )
+
+    return {
+        "session_id": session_id,
+        "total_records": len(activities),
+        "activities": activities
+    }
 
 @app.get("/sessions/active")
 def get_active_session():
@@ -234,7 +282,16 @@ def end_session(session_id: str):
 
     manager.sessions[session_id]["status"] = "Ended"
     manager.sessions[session_id]["ended_at"] = datetime.now().isoformat()
-
+        # Update the session in MongoDB
+    sessions_collection.update_one(
+        {"session_id": session_id},
+        {
+            "$set": {
+                "status": "Ended",
+                "ended_at": datetime.now()
+            }
+        }
+    )
     ended_assignments = []
 
     for assignment_id, assignment in list(manager.assignments.items()):
@@ -595,6 +652,23 @@ async def websocket_endpoint(websocket: WebSocket):
                     }
 
                     manager.computers[pc_id]["last_seen"] = datetime.now().isoformat()
+
+                    # Save activity if a lab session is active
+                    for session in manager.sessions.values():
+                        if session["status"] == "Active":
+
+                            activity_record = {
+                                "session_id": session["session_id"],
+                                "pc_id": pc_id,
+                                "active_window": data.get("active_window"),
+                                "cpu_percent": data.get("cpu_percent"),
+                                "memory_percent": data.get("memory_percent"),
+                                "idle_seconds": data.get("idle_seconds"),
+                                "timestamp": datetime.now()
+                            }
+
+                            activity_collection.insert_one(activity_record)
+                            break
 
                     print(
                         f"Activity from {pc_id} | "

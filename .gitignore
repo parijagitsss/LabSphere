@@ -12,3 +12,7 @@ build/
 
 # Local student device identity
 student-client/device_config.json
+
+
+.env
+atlas-credentials.env
