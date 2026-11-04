@@ -25,6 +25,11 @@ function App() {
   const [sessionActivities, setSessionActivities] = useState([]);
   const [selectedLogPC, setSelectedLogPC] = useState(null);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  // Activity Log Filters
+  const [activitySearch, setActivitySearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const teacherStreamRef = useRef(null);
   const broadcastIntervalRef = useRef(null);
   // Lab Session Controls
@@ -822,6 +827,41 @@ const clearBroadcastAnnotations = () => {
     (computer) => computer.status === "Online"
   ).length;
   const offlineCount = computers.length - onlineCount;
+  const filteredActivities = sessionActivities.filter((record) => {
+  const searchText = activitySearch.toLowerCase();
+
+  const matchesSearch =
+    !searchText ||
+    [
+      record.pc_id,
+      record.active_window,
+      record.browser_title,
+      record.browser,
+      record.domain
+    ].some((value) =>
+      (value || "").toLowerCase().includes(searchText)
+    );
+
+  const matchesCategory =
+    categoryFilter === "All" ||
+    record.category === categoryFilter;
+
+  const matchesType =
+    typeFilter === "All" ||
+    (typeFilter === "Browser"
+      ? record.activity_type === "browser"
+      : record.activity_type !== "browser");
+
+  const matchesFlagged =
+    !flaggedOnly || record.category === "Red";
+
+  return (
+    matchesSearch &&
+    matchesCategory &&
+    matchesType &&
+    matchesFlagged
+  );
+});
   return (
     <div className="app">
       <header className="topbar">
@@ -860,20 +900,7 @@ const clearBroadcastAnnotations = () => {
       <main className="dashboard">
         {activePage === "dashboard" ? (
           <>
-            <section className="stats" id="overview">
-          <div className="stat-card">
-            <span>Total Computers</span>
-            <strong>{computers.length}</strong>
-          </div>
-          <div className="stat-card">
-            <span>Online</span>
-            <strong>{onlineCount}</strong>
-          </div>
-          <div className="stat-card">
-            <span>Offline</span>
-            <strong>{offlineCount}</strong>
-          </div>
-        </section>
+      
 
         
 
@@ -1026,14 +1053,8 @@ const clearBroadcastAnnotations = () => {
                 className="computer-hover-controls"
                 onClick={(event) => event.stopPropagation()}
               >
-                <button onClick={() => viewComputer(computer.pc_id)}>
-                  View Activity
-                </button>
                 <button onClick={() => lockComputer(computer.pc_id)}>
                   🔒 Lock
-                </button>
-                <button onClick={() => pingComputer(computer.pc_id)}>
-                  📡 Ping
                 </button>
                 <button onClick={() => sendMessage(computer.pc_id)}>
                   💬 Message
@@ -1042,9 +1063,29 @@ const clearBroadcastAnnotations = () => {
             </div>
 
             <div className="computer-card-caption">
-              <h3>{computer.pc_id}</h3>
-              <span>{computer.hostname || "Computer"}</span>
-            </div>
+  <div className="computer-card-heading">
+    <h3>{computer.pc_id}</h3>
+  </div>
+
+  <div className="computer-current-activity">
+    {computer.activity?.activity_type === "browser" ? (
+      <>
+        <strong>
+          {computer.activity.browser_title || "Unknown browser tab"}
+        </strong>
+
+        <span className="activity-domain">
+          {computer.activity.domain || computer.activity.browser || "Browser"}
+        </span>
+      </>
+    ) : (
+      <strong>
+        {computer.activity?.active_window ||
+          "No application activity detected"}
+      </strong>
+    )}
+  </div>
+</div>
           </article>
         );
       })}
@@ -1052,15 +1093,24 @@ const clearBroadcastAnnotations = () => {
   )}
 </section>
 
+<section className="stats" id="overview">
+          <div className="stat-card">
+            <span>Total Computers</span>
+            <strong>{computers.length}</strong>
+          </div>
+          <div className="stat-card">
+            <span>Online</span>
+            <strong>{onlineCount}</strong>
+          </div>
+          <div className="stat-card">
+            <span>Offline</span>
+            <strong>{offlineCount}</strong>
+          </div>
+        </section>
+
         </>
 ) : (
   <section className="activity-logs-section">
-    <div className="section-header">
-      <div>
-        <h2>Activity Logs</h2>
-        <p>View activity recorded during previous lab sessions.</p>
-      </div>
-    </div>
 
     <div className="session-history">
 
@@ -1152,8 +1202,44 @@ const clearBroadcastAnnotations = () => {
           {selectedLogPC && (
             <div className="activity-timeline">
               <h3>Activity Timeline: {selectedLogPC}</h3>
+              <div className="activity-filters">
+  <input
+    type="text"
+    placeholder="Search apps, websites, or domains..."
+    value={activitySearch}
+    onChange={(e) => setActivitySearch(e.target.value)}
+  />
 
-              {sessionActivities
+  <select
+    value={categoryFilter}
+    onChange={(e) => setCategoryFilter(e.target.value)}
+  >
+    <option value="All">All Categories</option>
+    <option value="Green">Green</option>
+    <option value="Yellow">Yellow</option>
+    <option value="Red">Red</option>
+  </select>
+
+  <select
+    value={typeFilter}
+    onChange={(e) => setTypeFilter(e.target.value)}
+  >
+    <option value="All">All Activity Types</option>
+    <option value="Browser">Browser</option>
+    <option value="Application">Application</option>
+  </select>
+
+  <label className="flagged-filter">
+    <input
+      type="checkbox"
+      checked={flaggedOnly}
+      onChange={(e) => setFlaggedOnly(e.target.checked)}
+    />
+    Flagged Only
+  </label>
+</div>
+
+              {filteredActivities
                 .filter((record) => record.pc_id === selectedLogPC)
                 .map((record, index) => (
                   <div className="activity-log-card" key={index}>
@@ -1163,13 +1249,50 @@ const clearBroadcastAnnotations = () => {
                         : "Time unavailable"}
                     </div>
 
-                    <h4>{record.active_window || "Unknown Application"}</h4>
+                    {record.activity_type === "browser" ? (
+  <>
+    <h4>
+      🌐 {record.browser_title || "Unknown Browser Tab"}
+    </h4>
 
-                    <div className="activity-log-metrics">
-                      <span>CPU: {record.cpu_percent ?? "N/A"}%</span>
-                      <span>Memory: {record.memory_percent ?? "N/A"}%</span>
-                      <span>Idle: {record.idle_seconds ?? "N/A"} sec</span>
+    <div className="browser-activity-details">
+  <span>{record.browser || "Browser"}</span>
+  <span className="browser-domain">
+    {record.domain || "Unknown domain"}
+  </span>
+</div>
+  </>
+) : (
+  <h4>{record.active_window || "Unknown Application"}</h4>
+)}
+
+                    <div className="activity-log-classification">
+                      {record.category === "Red" && (
+                        <span className="activity-flag red-flag">
+                          🚩 Flagged Activity
+                        </span>
+                      )}
+
+                      {record.category === "Yellow" && (
+                        <span className="activity-flag yellow-flag">
+                          ⚠ Requires Review
+                        </span>
+                      )}
+                      <span
+                        className={`activity-category-badge ${
+                          (record.category || "Unclassified").toLowerCase()
+                        }`}
+                      >
+                        {record.category || "Unclassified"}
+                      </span>
+
+                      {record.classification_reason && (
+                        <span className="classification-reason">
+                          {record.classification_reason}
+                        </span>
+                      )}
                     </div>
+
                   </div>
                 ))}
             </div>
@@ -1211,23 +1334,11 @@ const clearBroadcastAnnotations = () => {
 
             {activity ? (
               <div className="activity-grid">
-                <div className="activity-card">
-                  <span>Active Application</span>
-                  <strong>{activity.active_window || "Unknown"}</strong>
-                </div>
-                <div className="activity-card">
-                  <span>CPU Usage</span>
-                  <strong>{activity.cpu_percent ?? "N/A"}%</strong>
-                </div>
-                <div className="activity-card">
-                  <span>Memory Usage</span>
-                  <strong>{activity.memory_percent ?? "N/A"}%</strong>
-                </div>
-                <div className="activity-card">
-                  <span>Idle Time</span>
-                  <strong>{activity.idle_seconds ?? "N/A"} seconds</strong>
-                </div>
-              </div>
+  <div className="activity-card">
+    <span>Active Application</span>
+    <strong>{activity.active_window || "Unknown"}</strong>
+  </div>
+</div>
             ) : (
               <div className="empty-state">No activity data available.</div>
             )}

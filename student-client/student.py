@@ -4,7 +4,6 @@ import socket
 from click import command
 import websockets
 import ctypes
-import psutil
 import win32gui
 import base64
 import io
@@ -14,7 +13,8 @@ import uuid
 from pathlib import Path
 import tkinter as tk
 from PIL import ImageTk
-
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class TeacherBroadcastViewer:
@@ -80,6 +80,113 @@ class TeacherBroadcastViewer:
             self.label = None
             self.photo = None
 
+# ==========================================
+# BROWSER ACTIVITY RECEIVER
+# ==========================================
+
+latest_browser_activity = {}
+browser_activity_lock = threading.Lock()
+
+
+class BrowserActivityHandler(BaseHTTPRequestHandler):
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_POST(self):
+
+        if self.path != "/activity":
+            self.send_error(404)
+            return
+
+        try:
+            content_length = int(
+                self.headers.get("Content-Length", 0)
+            )
+
+            if content_length > 10000:
+                self.send_error(413)
+                return
+
+            data = json.loads(
+                self.rfile.read(content_length)
+            )
+
+            required_fields = ["browser", "title", "url"]
+
+            if not all(data.get(field) for field in required_fields):
+                self.send_error(400)
+                return
+
+            with browser_activity_lock:
+                global latest_browser_activity
+
+                latest_browser_activity = {
+                    "browser": data["browser"],
+                    "title": data["title"],
+                    "url": data["url"],
+                    "domain": data.get("domain", "")
+                }
+
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(b"Activity received")
+
+            print(
+                f"Browser activity received: "
+                f"{data['browser']} | {data['domain']}"
+            )
+
+        except Exception as error:
+            print("Browser activity error:", error)
+            self.send_error(400)
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_browser_receiver():
+
+    server = HTTPServer(
+        ("127.0.0.1", 8765),
+        BrowserActivityHandler
+    )
+
+    print("Browser activity receiver running on port 8765")
+
+    server.serve_forever()
+
+async def send_browser_activity(websocket, pc_id):
+
+    last_sent = None
+
+    while True:
+        with browser_activity_lock:
+            activity = latest_browser_activity.copy()
+
+        if activity and activity != last_sent:
+
+            message = {
+                "type": "BROWSER_ACTIVITY",
+                "pc_id": pc_id,
+                "browser": activity.get("browser"),
+                "title": activity.get("title"),
+                "domain": activity.get("domain"),
+                "timestamp": asyncio.get_running_loop().time()
+            }
+
+            await websocket.send(json.dumps(message))
+            print(f"Browser activity sent to server: {activity.get('domain')}")
+
+            last_sent = activity.copy()
+
+        await asyncio.sleep(1)  
+
 def get_device_id():
     config_path = Path(__file__).with_name("device_config.json")
 
@@ -138,18 +245,14 @@ async def send_activity(websocket, pc_id):
             activity = {
                 "type": "ACTIVITY",
                 "pc_id": pc_id,
-                "cpu_percent": psutil.cpu_percent(interval=1),
-                "memory_percent": psutil.virtual_memory().percent,
                 "timestamp": asyncio.get_running_loop().time(),
-                "active_window": get_active_window(),
-                "idle_seconds": get_idle_time(),
+                "active_window": get_active_window()
             }
 
             await websocket.send(json.dumps(activity))
 
             print(
-                f"Activity sent | CPU: {activity['cpu_percent']}% | "
-                f"RAM: {activity['memory_percent']}%"
+                f"Activity sent | Window: {activity['active_window']}"
             )
 
         except Exception as e:
@@ -199,6 +302,10 @@ async def stream_screen(websocket, pc_id, stop_event):
 
 
 async def student_client():
+    threading.Thread(
+    target=start_browser_receiver,
+    daemon=True
+).start()
     uri = "ws://127.0.0.1:8000/ws"
 
     async with websockets.connect(uri) as websocket:
@@ -233,6 +340,10 @@ async def student_client():
         pc_id = registration_response.get("pc_id")
         broadcast_viewer = TeacherBroadcastViewer()
         print(f"Assigned computer ID: {pc_id}")
+
+        browser_task = asyncio.create_task(
+            send_browser_activity(websocket, pc_id)
+        )
 
         asyncio.create_task(send_heartbeat(websocket))
         asyncio.create_task(send_activity(websocket, pc_id))

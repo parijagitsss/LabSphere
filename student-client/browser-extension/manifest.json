@@ -1,0 +1,16 @@
+
+{
+  "manifest_version": 3,
+  "name": "LabSphere Browser Monitor",
+  "version": "1.0.0",
+  "description": "Records active browser tab metadata during authorised laboratory sessions.",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

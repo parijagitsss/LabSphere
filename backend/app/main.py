@@ -38,6 +38,163 @@ teacher_overlay_clients = set()
 teacher_dashboard_clients = set()
 # Teacher desktop toolbar process
 teacher_overlay_process = None
+def classify_activity(active_window):
+    window = (active_window or "").lower()
+
+# ==========================================
+# LAB ACTIVITY CLASSIFICATION RULES
+# Add new application or website keywords
+# to these lists whenever required.
+# ==========================================
+
+ACTIVITY_RULES = {
+
+    "Green": [
+        # Code editors and IDEs
+        "visual studio code",
+        "vscode",
+        "pycharm",
+        "intellij",
+        "eclipse",
+        "sublime text",
+        "visual studio",
+        "netbeans",
+        "android studio",
+
+        # Programming and development
+        "jupyter",
+        "anaconda",
+        "python",
+        "idle",
+        "node.js",
+        "terminal",
+        "command prompt",
+        "powershell",
+        "git bash",
+
+        # Development platforms
+        "github",
+        "gitlab",
+        "stackoverflow",
+        "stack overflow",
+        "w3schools",
+        "mdn web docs",
+        "geeksforgeeks",
+
+        # Databases
+        "mongodb compass",
+        "mysql workbench",
+        "pgadmin",
+        "sqlite",
+        "phpmyadmin",
+
+        # Cybersecurity
+        "kali linux",
+        "wireshark",
+        "nmap",
+        "burp suite",
+        "metasploit",
+
+        # Academic and learning platforms
+        "google classroom",
+        "moodle",
+        "coursera",
+        "nptel",
+        "google scholar",
+        "ieee xplore",
+
+        # Office and documentation
+        "microsoft word",
+        "microsoft excel",
+        "powerpoint",
+        "libreoffice",
+        "acrobat"
+    ],
+
+    "Yellow": [
+        # AI tools
+        "chatgpt",
+        "openai",
+        "gemini",
+        "claude",
+        "copilot",
+        "perplexity",
+
+        # Search engines and general browsing
+        "google search",
+        "bing",
+        "duckduckgo",
+        "new tab",
+
+        # Communication
+        "whatsapp",
+        "telegram",
+        "gmail",
+        "outlook",
+
+        # General browsing and social media
+        "instagram",
+        "facebook",
+        "snapchat",
+        "reddit",
+
+        # Video and media
+        "youtube",
+        "vimeo",
+
+        # Cloud storage
+        "google drive",
+        "dropbox",
+        "onedrive"
+    ],
+
+    "Red": [
+        # Games
+        "roblox",
+        "minecraft",
+        "valorant",
+        "fortnite",
+        "steam",
+        "epic games",
+        "pubg",
+        "counter-strike",
+        "gta",
+        "league of legends",
+
+        # Entertainment
+        "netflix",
+        "disney+",
+        "prime video",
+        "hotstar",
+        "twitch"
+    ]
+}
+
+
+def classify_activity(active_window):
+
+    window = (active_window or "").lower()
+
+    # Check potentially non-academic activities first
+    if any(keyword in window for keyword in ACTIVITY_RULES["Red"]):
+        return {
+            "category": "Red",
+            "classification_reason": "Recognised game or entertainment application"
+        }
+
+    # Check educational and productive applications
+    if any(keyword in window for keyword in ACTIVITY_RULES["Green"]):
+        return {
+            "category": "Green",
+            "classification_reason": "Educational or productive application"
+        }
+
+    # Everything else requires review
+    return {
+        "category": "Yellow",
+        "classification_reason": "General browsing or unclassified activity"
+    }
+
 
 def start_teacher_overlay():
     global teacher_overlay_process
@@ -162,6 +319,16 @@ def unassign_student(assignment_id: str):
     pc_id = assignment["pc_id"]
 
     if pc_id in manager.computers:
+        manager.computers[pc_id]["activity"] = {
+            "activity_type": "browser",
+            "browser": data.get("browser"),
+            "browser_title": data.get("title"),
+            "domain": data.get("domain"),
+            "category": classify_activity(
+                data.get("title", "") + " " + data.get("domain", "")
+            )["category"],
+            "timestamp": datetime.now().isoformat()
+        }
         manager.computers[pc_id]["student_name"] = None
 
     del manager.assignments[assignment_id]
@@ -484,7 +651,8 @@ def get_computers():
             "ip_address": info["ip_address"],
             "student_name": info["student_name"],
             "status": info["status"],
-            "last_seen": info["last_seen"]
+            "last_seen": info["last_seen"],
+            "activity": info.get("activity")
         }
 
     return computers
@@ -730,9 +898,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 if pc_id in manager.computers:
                     manager.computers[pc_id]["activity"] = {
                         "active_window": data.get("active_window"),
-                        "cpu_percent": data.get("cpu_percent"),
-                        "memory_percent": data.get("memory_percent"),
-                        "idle_seconds": data.get("idle_seconds"),
                         "timestamp": data.get("timestamp")
                     }
 
@@ -742,13 +907,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     for session in manager.sessions.values():
                         if session["status"] == "Active":
 
+                            classification = classify_activity(
+                                data.get("active_window")
+                            )
+
                             activity_record = {
                                 "session_id": session["session_id"],
                                 "pc_id": pc_id,
                                 "active_window": data.get("active_window"),
-                                "cpu_percent": data.get("cpu_percent"),
-                                "memory_percent": data.get("memory_percent"),
-                                "idle_seconds": data.get("idle_seconds"),
+                                "category": classification["category"],
+                                "classification_reason": classification["classification_reason"],
                                 "timestamp": datetime.now()
                             }
 
@@ -757,12 +925,70 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     print(
                         f"Activity from {pc_id} | "
-                        f"Window: {data.get('active_window')} | "
-                        f"CPU: {data.get('cpu_percent')}% | "
-                        f"RAM: {data.get('memory_percent')}%"
-                )
+                        f"Window: {data.get('active_window')}"
+                    )
+
                 else:
                     print(f"Activity received from unknown computer: {pc_id}")
+            elif data.get("type") == "BROWSER_ACTIVITY":
+                pc_id = data.get("pc_id")
+
+                    # Restore active session from MongoDB if memory is empty
+                if not any(
+                    session.get("status") == "Active"
+                    for session in manager.sessions.values()
+                ):
+                    active_session = sessions_collection.find_one(
+                        {"status": "Active"},
+                        {"_id": 0}
+                    )
+
+                    if active_session:
+                        created_at = active_session.get("created_at")
+
+                        if isinstance(created_at, datetime):
+                            active_session["created_at"] = created_at.isoformat()
+
+                        manager.sessions[active_session["session_id"]] = active_session
+
+                        print(
+                            "DEBUG - Active session restored:",
+                            active_session["session_id"]
+                        )
+
+                if pc_id in manager.computers:
+
+                    manager.computers[pc_id]["last_seen"] = datetime.now().isoformat()
+
+                    for session in manager.sessions.values():
+                        if session["status"] == "Active":
+
+                            activity_record = {
+                                "session_id": session["session_id"],
+                                "pc_id": pc_id,
+                                "activity_type": "browser",
+                                "browser": data.get("browser"),
+                                "browser_title": data.get("title"),
+                                "domain": data.get("domain"),
+                                "category": classify_activity(
+                                    data.get("title", "") + " " + data.get("domain", "")
+                                )["category"],
+                                "classification_reason": classify_activity(
+                                    data.get("title", "") + " " + data.get("domain", "")
+                                )["classification_reason"],
+                                "timestamp": datetime.now()
+                            }
+
+                            activity_collection.insert_one(activity_record)
+                            break
+
+                    print(
+                        f"Browser activity from {pc_id} | "
+                        f"{data.get('domain')} | {data.get('title')}"
+                    )
+
+                else:
+                    print(f"Browser activity received from unknown computer: {pc_id}")
 
             elif data.get("type") == "RESPONSE":
                 command = data.get("command")
