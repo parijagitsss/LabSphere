@@ -187,6 +187,24 @@ async def send_browser_activity(websocket, pc_id):
 
         await asyncio.sleep(1)  
 
+def get_server_uri():
+    config_path = Path(__file__).with_name("server_config.json")
+
+    try:
+        with config_path.open("r", encoding="utf-8") as file:
+            config = json.load(file)
+
+        server_ip = config.get("server_ip", "127.0.0.1").strip()
+
+        if not server_ip:
+            raise ValueError("Server IP address is empty.")
+
+        return f"ws://{server_ip}:8000/ws"
+
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as error:
+        print("Server configuration error:", error)
+        raise
+
 def get_device_id():
     config_path = Path(__file__).with_name("device_config.json")
 
@@ -306,7 +324,7 @@ async def student_client():
     target=start_browser_receiver,
     daemon=True
 ).start()
-    uri = "ws://127.0.0.1:8000/ws"
+    uri = get_server_uri()
 
     async with websockets.connect(uri) as websocket:
         print("Connected to LabSphere server!")
